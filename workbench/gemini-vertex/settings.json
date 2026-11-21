@@ -1,0 +1,24 @@
+{
+  "model": { "name": "gemini-4-neon" },
+  "experimental": { "dynamicModelConfiguration": true },
+  "modelConfigs": {
+    "modelDefinitions": {
+      "gemini-4-neon": { "displayName": "Gemini 4 Neon", "isVisible": true },
+      "gemini-4-hydrogen": { "displayName": "Gemini 4 Hydrogen", "isVisible": true },
+      "gemini-4-carbon": { "displayName": "Gemini 4 Carbon", "isVisible": true },
+      "gemini-3.8-flash": { "displayName": "Gemini 3.8 Flash", "isVisible": true },
+      "gemini-3.1-flash-lite": { "isVisible": false },
+      "gemini-3.5-flash-lite": { "isVisible": false },
+      "gemini-3.1-pro-preview": { "isVisible": false },
+      "gemini-3-pro-preview": { "isVisible": false },
+      "gemini-3-flash-preview": { "isVisible": false },
+      "gemini-3.5-flash": { "isVisible": false },
+      "gemini-2.5-pro": { "isVisible": false },
+      "gemini-2.5-flash": { "isVisible": false },
+      "gemini-2.5-flash-lite": { "isVisible": false },
+      "gemma-4-31b-it": { "isVisible": false },
+      "gemma-4-26b-a4b-it": { "isVisible": false },
+      "auto": { "isVisible": false }
+    }
+  }
+}

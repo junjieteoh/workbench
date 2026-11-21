@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildBackendTargetKey, DEFAULT_ACTIONS_SETTINGS_V1 } from '@happier-dev/protocol';
+import { getEnabledAgentIds } from '@/agents/catalog/enabled';
 import { DEFAULT_AGENT_ID } from '@/agents/registry/registryCore';
 import { settingsParse, applySettings, settingsDefaults, type Settings } from './settings';
 import { AIBackendProfileSchema } from '../profiles/profileCompatibility';
@@ -51,6 +52,14 @@ describe('settings', () => {
 
         it('should return defaults when given empty object', () => {
             expect(settingsParse({})).toEqual(parsedSettingsDefaults);
+        });
+
+        it('offers the four Workbench agents by default and respects individual picker overrides', () => {
+            const defaultAgents = ['claude', 'codex', 'cursor', 'gemini'];
+            expect(getEnabledAgentIds(settingsParse({})).sort()).toEqual(defaultAgents);
+            const overrides = { 'agent:claude': false, 'agent:opencode': true };
+            const enabled = getEnabledAgentIds(settingsParse({ backendEnabledByTargetKey: overrides }));
+            expect(enabled.sort()).toEqual(['codex', 'cursor', 'gemini', 'opencode']);
         });
 
         it('defaults Happier run instructions on while retaining an explicit false', () => {
@@ -1259,16 +1268,6 @@ describe('settings', () => {
             expect(settingsDefaults.experiments).toBe(false);
             expect(settingsDefaults.avatarStyle).toBe('meshGradientColumns');
             expect(settingsDefaults.alwaysShowContextSize).toBe(true);
-            expect(settingsDefaults.backendEnabledByTargetKey).toMatchObject({
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'claude' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'codex' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'opencode' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'gemini' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'auggie' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'qwen' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'kimi' })]: true,
-                [buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'kilo' })]: true,
-            });
             expect((settingsDefaults as any).profileEnabledById).toEqual({});
             expect((settingsDefaults as any).backendCliSourcePreferenceById).toEqual({});
             expect(settingsDefaults.codexBackendMode).toBe('appServer');

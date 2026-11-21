@@ -3,8 +3,12 @@ import { z } from 'zod';
 
 import { AGENT_IDS, type AgentId } from '@/agents/registry/registryCore';
 
+const DEFAULT_WORKBENCH_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>(['claude', 'codex', 'gemini', 'cursor']);
 const DEFAULT_BACKEND_ENABLED_BY_TARGET_KEY: Record<string, boolean> = Object.fromEntries(
-    AGENT_IDS.map((id) => [buildBackendTargetKey({ kind: 'builtInAgent', agentId: id }), true]),
+    AGENT_IDS.map((agentId) => [
+        buildBackendTargetKey({ kind: 'builtInAgent', agentId }),
+        DEFAULT_WORKBENCH_AGENTS.has(agentId),
+    ]),
 );
 
 const BACKEND_CLI_SOURCE_PREFERENCE_VALUES = ['system-first', 'managed-first'] as const;
@@ -54,7 +58,10 @@ export const BackendCliSourcePreferenceByIdSchema = z.preprocess((raw) => {
 
 export const ACCOUNT_BACKEND_SETTING_DEFINITIONS = defineSettingDefinitions({
     backendEnabledByTargetKey: {
-        schema: z.record(z.string(), z.boolean()).default(DEFAULT_BACKEND_ENABLED_BY_TARGET_KEY),
+        schema: z.record(z.string(), z.boolean()).default({}).transform((overrides) => ({
+            ...DEFAULT_BACKEND_ENABLED_BY_TARGET_KEY,
+            ...overrides,
+        })),
         default: DEFAULT_BACKEND_ENABLED_BY_TARGET_KEY,
         description: 'Per-backend enable/disable toggles',
         storageScope: 'account',
