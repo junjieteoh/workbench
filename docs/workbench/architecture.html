@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench architecture</title>
+<style>
+:root{color-scheme:light;--ink:#172c45;--muted:#4a6075;--blue:#214e86;--rule:#c7d2dc;--pale:#f3f6fa;--green:#006757}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--pale);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+main{max-width:1450px;margin:0 auto;padding:30px clamp(12px,3vw,52px) 30px}.toolbar,.caption-head,.sheet-head,footer{display:flex;align-items:center;justify-content:space-between;gap:16px}.toolbar{margin:0 0 14px;flex-wrap:wrap}h1,h2,p,figure{margin:0}h1{font-size:clamp(23px,2.2vw,32px);letter-spacing:-.04em;font-weight:650}.views{display:flex;flex-wrap:wrap;gap:3px;border:1px solid var(--rule);border-radius:5px;padding:3px;background:#fff}button,select{color:inherit;font:inherit;cursor:pointer}button{background:none;border:0;border-radius:3px;padding:6px 12px;font-size:14px;font-weight:550}button[aria-pressed=true]{color:#fff;background:var(--blue)}button:focus-visible,select:focus-visible,a:focus-visible,.canvas:focus-visible{outline:3px solid #dc7925;outline-offset:2px}
+.sheet{background:white;border:1px solid var(--rule);box-shadow:0 2px 8px #172c4509}.canvas{overflow-x:auto}.canvas img,.canvas>svg{display:block;width:100%;height:auto;min-width:850px}.caption{border-top:1px solid var(--rule);padding:16px clamp(14px,2.5vw,38px);background:#f9fbfc}.caption-head{justify-content:flex-start;flex-wrap:wrap;gap:8px 16px}.caption-head label,.kind{font:600 12px/1.3 "SFMono-Regular",Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}select{background:white;border:1px solid #97abbd;border-radius:4px;padding:5px 28px 5px 9px;font-size:14px}.caption p{margin-top:10px;max-width:100ch;color:var(--muted)}[hidden]{display:none!important}
+.sheet-head{padding:26px 30px 10px;align-items:flex-start}.sheet-head h2{font-size:clamp(23px,3vw,36px);line-height:1.2;letter-spacing:-.035em;margin-top:9px}.sheet-head p{margin-top:8px;color:var(--muted);max-width:74ch}.flow{padding:22px 30px 28px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;list-style:none;margin:0;counter-reset:steps}.flow li{position:relative;border-top:3px solid var(--blue);padding:14px 0 0;counter-increment:steps}.flow li::before{content:counter(steps,decimal-leading-zero);display:block;color:var(--blue);font:650 13px/1.2 Consolas,monospace;margin-bottom:12px}.flow li:not(:last-child)::after{position:absolute;content:"→";right:-19px;top:-16px;background:white;color:var(--blue);font-size:17px}.flow strong{display:block;font-size:18px}.flow p{margin-top:6px;font-size:15px;color:var(--muted)}.sheet-note{padding:15px 30px;border-top:1px solid var(--rule);color:var(--muted);background:#f9fbfc}.sheet-note strong{color:var(--ink)}footer{margin-top:14px;font-size:13px;color:var(--muted);flex-wrap:wrap}a{color:var(--blue)}.mobile-hint{display:none}
+@media(max-width:780px){main{padding:15px 9px}.toolbar{gap:8px}.mobile-hint{display:block;font-size:12px;color:var(--muted);margin:6px 0}.flow{grid-template-columns:1fr;gap:15px;padding:16px}.flow li{padding:4px 0 4px 12px;border:0;border-left:2px solid var(--blue)}.flow li::before{float:right;margin:3px}.flow li:not(:last-child)::after{display:none}.sheet-head,.sheet-note,.caption{padding:16px}.views{width:100%}.views button{flex:1;padding:7px 5px}}
+@media print{@page{size:landscape;margin:7mm}body{background:white}main{padding:0;max-width:none}.toolbar,.mobile-hint,footer{display:none}.sheet{box-shadow:none;border:0;break-inside:avoid}.canvas{overflow:visible}.canvas img,.canvas>svg{min-width:0;max-height:150mm}.caption{padding:8px}.flow{display:grid;grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body><main>
+<header class="toolbar"><h1>Workbench architecture</h1><nav class="views" aria-label="Architecture views">
+<button type="button" data-view="runtime" aria-pressed="true">Deployment</button>
+<button type="button" data-view="ship" aria-pressed="false">Software delivery</button>
+<button type="button" data-view="slack" aria-pressed="false">Proposed workflow</button>
+</nav></header>
+<section class="sheet" id="runtime" aria-label="Current deployment">
+<p class="mobile-hint">Scroll the drawing horizontally to inspect the full topology.</p>
+<div class="canvas" tabindex="0" aria-label="Scrollable deployment diagram"><img src="deployment.svg" alt="Mac and Ubuntu workers connect to Tailscale Serve. The relay persists workspace records in SQLite. Each worker calls its model provider directly."></div>
+<div class="caption"><div class="caption-head"><label for="route">Trace a session</label><select id="route">
+<option value="server">Codex on the server</option><option value="mac">Claude on the Mac</option><option value="serverClaude">Claude on the server</option><option value="vertex">Gemini on Vertex</option>
+</select></div><p id="flow-description" aria-live="polite">The browser sends the task through the relay. The server worker runs Codex in the selected Ubuntu directory and calls OpenAI. The task can continue with the Mac asleep.</p></div>
+</section>
+<section class="sheet" id="ship" hidden aria-label="Software delivery">
+<header class="sheet-head"><div><span class="kind">Software delivery · current deployment</span><h2>From a fork commit to the private workspace</h2><p>A running relay serves a built image. Pulling source on the server updates its checkout.</p></div></header>
+<ol class="flow"><li><strong>Develop locally</strong><p>Start from the deployment branch. Exercise the change in the Mac pilot.</p></li><li><strong>Review on GitHub</strong><p>Push the topic branch to the fork. Review the diff and select the revision to promote.</p></li><li><strong>Stage the release</strong><p>Build the web bundle from that revision. On Ubuntu, package it with the pinned relay image and check the candidate in isolation.</p></li><li><strong>Switch the relay</strong><p>Reuse the existing data volume. Check the private URL, served revision, workspace records and both worker heartbeats.</p></li></ol>
+<p class="sheet-note"><strong>Rollback.</strong> Switch back to the previous relay image for a web-only release. A CLI change has a separate rollout on each affected worker.</p>
+</section>
+<section class="sheet" id="slack" hidden aria-label="Proposed integration workflow">
+<header class="sheet-head"><div><span class="kind">Proposed integration · after the session pilot</span><h2>One customer question, one review item</h2><p>A colleague asks in Slack whether Friday is still realistic. The supporting delivery decision lives in Linear.</p></div></header>
+<ol class="flow"><li><strong>Select the thread</strong><p>The user chooses a Slack thread and permits reading the linked issue.</p></li><li><strong>Prepare a reply</strong><p>A server agent checks the issue and drafts an answer. A reviewer can flag a conflict with the requested date.</p></li><li><strong>Queue the decision</strong><p>The work thread holds the draft, sources and open decision. A known deadline can raise it before the next review.</p></li><li><strong>Approve delivery</strong><p>The user edits the reply and approves its text and destination. The connector records delivery in the same thread.</p></li></ol>
+<p class="sheet-note"><strong>First test.</strong> Start with the read-and-draft steps. Repeated source events should update the same item while the user’s active document stays open.</p>
+</section>
+<footer><span>Workbench engineering · November 2026</span><a href="https://c4model.com/diagrams/deployment">C4 deployment notation</a></footer>
+</main><script>
+const descriptions = {
+  server: 'The browser sends the task through the relay. The server worker runs Codex in the selected Ubuntu directory and calls OpenAI. The task can continue with the Mac asleep.',
+  mac: 'Select the Mac when the files live there. Its daemon launches Claude Code in the selected directory and calls Anthropic. The relay on Ubuntu keeps serving the workspace when the Mac sleeps.',
+  serverClaude: 'The Ubuntu daemon launches Claude Code with its own files and login. The artifact profile uses the interactive Claude terminal on that same host.',
+  vertex: 'The Ubuntu daemon launches Gemini CLI and authenticates to Google Cloud from the worker. Vertex AI runs the model. The browser receives the result through the relay.'
+};
+const buttons = Array.from(document.querySelectorAll('[data-view]'));
+const select = document.getElementById('route');
+function render(route) {
+  const view = route === 'ship' || route === 'slack' ? route : 'runtime';
+  for (const button of buttons) {
+    const current = button.dataset.view === view;
+    button.setAttribute('aria-pressed', String(current));
+    document.getElementById(button.dataset.view).hidden = !current;
+  }
+  if (view === 'runtime') {
+    select.value = Object.hasOwn(descriptions, route) ? route : 'server';
+    document.getElementById('flow-description').textContent = descriptions[select.value];
+  }
+}
+function choose(route) {
+  render(route);
+  window.openai?.setWidgetState?.({modelContent:{route},privateContent:null})?.catch(()=>{});
+}
+for (const button of buttons) button.addEventListener('click', () => choose(button.dataset.view === 'runtime' ? select.value : button.dataset.view));
+select.addEventListener('change', () => choose(select.value));
+function routeFrom(state) {return state?.modelContent?.route ?? state?.route ?? 'server';}
+window.addEventListener('openai:set_globals', event => {
+  if (event.detail?.globals?.widgetState) render(routeFrom(event.detail.globals.widgetState));
+});
+render(routeFrom(window.openai?.widgetState));
+</script></body></html>

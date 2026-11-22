@@ -2,6 +2,8 @@
 
 The private web workspace uses the fork's `workbench/focused-agent-picker` branch. It tracks Happier's stable `main` releases. The browser downloads the deployed UI from the relay. Provider executables and configuration live on the selected worker.
 
+[Pilot working model and deployment diagram](../docs/workbench/working-model.md)
+
 ## Start a session
 
 In **New Session**, choose **jj-server** and a project directory. Select **Gemini** to use the server's Google Cloud project through Vertex. Select **Claude with artifacts (jj-server)** in the launch profile picker to use the authenticated interactive Claude terminal. Paste a shared artifact link into the chat. Claude enforces the signed-in account's sharing permissions and may request approval.
