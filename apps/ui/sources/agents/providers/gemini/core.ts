@@ -1,3 +1,4 @@
+import vertexPreset from '../../../../../../workbench/gemini-vertex/settings.json';
 import type { AgentCoreConfig } from '@/agents/registry/registryCore';
 import { buildCatalogProviderCliUiConfig } from '@/agents/providers/shared/buildCatalogProviderCliUiConfig';
 import { buildAgentConnectedServicesUiConfig } from '@/agents/registry/buildAgentConnectedServicesUiConfig';
@@ -5,6 +6,10 @@ import { buildAgentResumeUiConfig } from '@/agents/registry/buildAgentResumeUiCo
 import { buildAgentSessionStorageUiConfig } from '@/agents/registry/buildAgentSessionStorageUiConfig';
 import { buildAgentToolsUiConfig } from '@/agents/registry/buildAgentToolsUiConfig';
 import { getAgentModelConfig, getAgentSessionModesKind } from '@happier-dev/agents';
+
+const vertexModels = Object.entries(vertexPreset.modelConfigs.modelDefinitions).flatMap(([id, definition]) =>
+    definition.isVisible && 'displayName' in definition ? [{ id, name: definition.displayName }] : [],
+);
 
 export const GEMINI_CORE: AgentCoreConfig = {
     id: 'gemini',
@@ -23,7 +28,14 @@ export const GEMINI_CORE: AgentCoreConfig = {
     sessionModes: {
         kind: getAgentSessionModesKind('gemini'),
     },
-    model: getAgentModelConfig('gemini'),
+    model: {
+        ...getAgentModelConfig('gemini'),
+        dynamicProbe: 'static-only',
+        supportsFreeform: false,
+        defaultMode: 'default',
+        allowedModes: vertexModels.map(({ id }) => id),
+        staticModels: vertexModels,
+    },
     resume: buildAgentResumeUiConfig({
         agentId: 'gemini',
         uiVendorResumeIdLabelKey: 'sessionInfo.geminiSessionId',

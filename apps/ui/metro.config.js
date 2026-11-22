@@ -219,7 +219,8 @@ config.resolver.blockList = Array.isArray(existingBlockList)
     : [testRouteBlockList, projectArtifactsBlockList, nextBuildArtifactsBlockList, transientGeneratedDirectoriesBlockList, cliRunnerSnapshotsBlockList, workspaceNodeModulesBlockList];
 
 const existingWatchFolders = Array.isArray(config.watchFolders) ? config.watchFolders : [];
-config.watchFolders = existingWatchFolders.filter(
+const vertexPresetFolder = path.resolve(__dirname, '../../workbench/gemini-vertex');
+config.watchFolders = [...existingWatchFolders, vertexPresetFolder].filter(
   (folder, index, all) => typeof folder === 'string' && folder.length > 0 && all.indexOf(folder) === index,
 );
 

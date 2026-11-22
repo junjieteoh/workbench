@@ -290,7 +290,8 @@ function getStaticModelOptionsForAgentType(agentType: AgentType): readonly Model
         { value: 'default', label: getModelLabel('default'), description: '' },
     ];
 
-    for (const model of getAgentStaticModels(agentType)) {
+    const models = getAgentCore(agentType).model.staticModels ?? getAgentStaticModels(agentType);
+    for (const model of models) {
         const value = typeof model.id === 'string' ? model.id.trim() : '';
         if (!value || seen.has(value)) continue;
         seen.add(value);
@@ -318,7 +319,7 @@ export function getModelOptionsForAgentTypeOrPreflight(params: {
     agentType: AgentType;
     preflight: PreflightModelList | null | undefined;
 }): readonly ModelOption[] {
-    if (params.preflight && Array.isArray(params.preflight.availableModels)) {
+    if (params.preflight && supportsDynamicSessionModelList(params.agentType) && Array.isArray(params.preflight.availableModels)) {
         const preflightOptions = getModelOptionsForPreflightModelList(params.preflight);
         const catalogOptions = getModelOptionsForAgentType(params.agentType);
         return mergeModelOptionsWithCatalog({

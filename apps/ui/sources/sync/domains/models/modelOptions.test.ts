@@ -4,6 +4,7 @@ import { parsePreflightModelListFromProbeModelsResult } from './parsePreflightMo
 import {
     findModelOptionForEffectiveModelId,
     getModelOptionsForAgentType,
+    getModelOptionsForAgentTypeOrPreflight,
     getModelOptionsForModes,
     getModelOptionsForPreflightModelList,
     getModelOptionsForSession,
@@ -127,28 +128,25 @@ describe('modelOptions', () => {
         expect(out[0].description).toBe('');
     });
 
-    it('returns options for agents with configurable model selection', () => {
-        const options = getModelOptionsForAgentType('gemini');
-        expect(options.map((o) => o.value)).toEqual([
-            'default',
-            'auto',
-            'gemini-2.5-pro',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-3-flash-preview',
-            'gemini-3-pro-preview',
-            'gemini-3.1-pro-preview',
-        ]);
-        expect(options.find((option) => option.value === 'auto')).toMatchObject({
-            value: 'auto',
-            label: 'Auto',
-            description: expect.any(String),
+    it('shows the same curated Vertex choices before and after a legacy Gemini CLI catalog arrives', () => {
+        const expectedIds = [
+            'default', 'gemini-4-neon', 'gemini-4-hydrogen', 'gemini-4-carbon',
+            'gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite',
+        ];
+        const availableModels = [{ id: 'auto', name: 'Auto' }, { id: 'gemini-2.5-pro', name: 'Old Pro' }];
+        const preflight = { availableModels, supportsFreeform: true };
+        const metadata = withMetadata({
+            sessionModelsV1: { v: 1, provider: 'gemini', updatedAt: 1, currentModelId: 'gemini-2.5-pro', availableModels },
         });
-        expect(options.find((option) => option.value === 'gemini-3.1-pro-preview')).toMatchObject({
-            value: 'gemini-3.1-pro-preview',
-            label: 'Gemini 3.1 Pro Preview',
-            description: expect.any(String),
-        });
+        for (const options of [
+            getModelOptionsForAgentType('gemini'),
+            getModelOptionsForAgentTypeOrPreflight({ agentType: 'gemini', preflight }),
+            getModelOptionsForSession('gemini', metadata, { preflight }),
+        ]) {
+            expect(options.map((option) => option.value)).toEqual(expectedIds);
+            expect(options.find((option) => option.value === 'gemini-4-argon')?.label).toBe('Gemini 4 Argon');
+        }
+        expect(supportsFreeformModelSelectionForSession('gemini', metadata, { preflight })).toBe(false);
     });
 
     it('returns a default-only option for selection-capable agents without static lists', () => {
@@ -393,9 +391,9 @@ describe('modelOptions', () => {
     });
 
     it('treats static Gemini models as selectable', () => {
-        expect(isModelSelectableForSession('gemini', null, 'gemini-2.5-pro')).toBe(true);
+        expect(isModelSelectableForSession('gemini', null, 'gemini-4-neon')).toBe(true);
         expect(isModelSelectableForSession('gemini', null, 'default')).toBe(true);
-        expect(isModelSelectableForSession('gemini', null, 'model-a')).toBe(true);
+        expect(isModelSelectableForSession('gemini', null, 'model-a')).toBe(false);
         expect(isModelSelectableForSession('gemini', null, '   ')).toBe(false);
     });
 
@@ -461,7 +459,7 @@ describe('modelOptions', () => {
         ]);
     });
 
-    it('adds metadata override model into options for Gemini when freeform is enabled', () => {
+    it('preserves a previously requested Gemini model in its existing session', () => {
         const out = getModelOptionsForSession(
             'gemini',
             withMetadata({
