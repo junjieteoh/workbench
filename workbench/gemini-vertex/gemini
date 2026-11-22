@@ -1,0 +1,10 @@
+#!/bin/sh
+# Happier starts Gemini with a temporary HOME. Resolve Google's ADC on the worker.
+set -eu
+: "${WORKBENCH_VERTEX_PROJECT:?missing Workbench Vertex project}"
+: "${WORKBENCH_VERTEX_ROOT:?missing Workbench installation directory}"
+: "${WORKBENCH_VERTEX_ADC:?missing ADC location}"
+export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-$WORKBENCH_VERTEX_PROJECT}"
+export GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION:-${WORKBENCH_VERTEX_LOCATION:-global}}"
+export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-$WORKBENCH_VERTEX_ADC}"
+exec "$WORKBENCH_VERTEX_ROOT/state/happier/tools/providers/gemini/current/bin/gemini" "$@"
