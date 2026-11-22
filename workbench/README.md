@@ -1,6 +1,12 @@
 # Workbench server profiles
 
-The private web workspace uses the fork's `workbench/focused-agent-picker` branch. It tracks Happier's stable `main` releases. The browser downloads the deployed UI from the relay. Provider executables and configuration live on the selected worker.
+The browser downloads the deployed UI from the relay. Provider executables and configuration live on the selected worker.
+
+## Developing Workbench extensions
+
+`workbench/main` is the fork's default branch. Start a short feature branch from it and open the PR against `workbench/main` in this fork. Bring stable Happier updates from `upstream/main` through a separate sync PR. Deploy a tested commit when it is ready.
+
+Build each connector as a separate module. Keep its authentication, API calls and event handling together. Reuse Happier's session, inbox and approval code where the extension needs them. If a change to shared code is necessary, describe the integration point in the PR and keep that change small. Use sample data in tests and keep live credentials outside the checkout.
 
 ## Start a session
 
@@ -16,7 +22,7 @@ On the worker, pull the deployment branch and apply the Gemini configuration. Th
 
 ```sh
 cd ~/workbench-happier/fork-source
-git pull --ff-only origin workbench/focused-agent-picker
+git pull --ff-only origin workbench/main
 workbench/gemini-vertex/install-worker.sh "$GOOGLE_CLOUD_PROJECT" global
 ```
 
