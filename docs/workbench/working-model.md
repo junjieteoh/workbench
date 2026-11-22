@@ -37,7 +37,7 @@ The web client is the pilot release target. The Mac’s separate local relay is 
 
 | Decision | Proposed practice |
 | --- | --- |
-| Source of truth | Keep the fork on GitHub. Mirror upstream `main` and `dev`. Base product PRs on `workbench/focused-agent-picker`, the current deployment branch. |
+| Source of truth | Keep the fork on GitHub. Mirror upstream `main` and `dev`. Base extension PRs on the fork’s default branch, `workbench/main`. |
 | A new stable release | Integrate stable `main` in a PR. Test the focused picker, start and resume a session, and verify worker reconnection before promoting a revision. |
 | An unreleased fix | Backport a narrow fix when a failure is reproducible in the pilot or before enabling a workflow with a known permission issue. Link the upstream commit, check its dependencies and test the affected component. |
 | Deployment | Build web changes from the reviewed revision. Stage the relay image, then switch it while preserving the existing volume. Verify the served revision and both worker heartbeats. CLI fixes require a worker build or installation on each affected host. |
