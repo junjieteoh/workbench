@@ -14,6 +14,16 @@ In **New Session**, choose **jj-server** and a project directory. Select **Gemin
 
 The default Claude profile uses the Agent SDK. The artifact profile applies only to new sessions created with it and keeps normal Claude approvals enabled.
 
+## Plan with Neon and execute with Opus
+
+In a Claude Opus session, type **Neon → Opus** followed by the task. For example, “Neon → Opus: group the rows in orders.csv by product and verify the totals.” Neon plans in a read-only Gemini run in that thread. Opus receives the plan, does the work and checks the result. You can open **Agents** to inspect the planner.
+
+To install this optional rule, run the following from a paired checkout with dependencies installed and `HAPPIER_HOME_DIR` and `HAPPIER_SERVER_URL` set for your relay. Start a new Opus session after installation. You can edit or disable the rule in **Settings → Subagents**. Reinstalling preserves your edits.
+
+```sh
+node workbench/configure-worker-profiles.cjs --neon-opus
+```
+
 ## Reproduce the server setup
 
 The Ubuntu worker uses a checkout at `~/workbench-happier/fork-source`, a paired Happier launcher at `~/workbench-happier/happier`, and the systemd user service `happier-daemon.workbench-tailnet.service`. The server user needs Google application-default credentials with Vertex access and a signed-in Claude subscription profile at `~/workbench-happier/state/claude`.

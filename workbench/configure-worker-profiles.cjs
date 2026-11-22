@@ -2,14 +2,17 @@
 const { createRequire } = require('node:module');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
+const { addNeonOpusGuidance } = require('./neon-opus-guidance.cjs');
 
 async function configure() {
   const [machine, serverHome, project, location] = process.argv.slice(2);
-  if (!machine || !/^[a-z0-9-]+$/i.test(machine) || !serverHome?.startsWith('/') || !project || !location ||
-      !process.env.HAPPIER_HOME_DIR || !process.env.HAPPIER_SERVER_URL) {
-    throw new Error('Set HAPPIER_HOME_DIR and HAPPIER_SERVER_URL, then pass the worker name, its home, the Google Cloud project, and the location.');
+  const handoffOnly = process.argv.length === 3 && machine === '--neon-opus';
+  if (!process.env.HAPPIER_HOME_DIR || !process.env.HAPPIER_SERVER_URL) {
+    throw new Error('Set HAPPIER_HOME_DIR and HAPPIER_SERVER_URL for the paired account.');
   }
-  const worker = path.posix.join(serverHome, 'workbench-happier');
+  if (!handoffOnly && (!machine || !/^[a-z0-9-]+$/i.test(machine) || !serverHome?.startsWith('/') || !project || !location)) {
+    throw new Error('Pass the worker name, home, Google Cloud project and location, or --neon-opus to install the handoff rule.');
+  }
   const cliDir = path.resolve(__dirname, '../apps/cli');
   process.env.TSX_TSCONFIG_PATH = path.join(cliDir, 'tsconfig.json');
   require('tsx/cjs');
@@ -20,6 +23,14 @@ async function configure() {
   }
   const { readCredentials } = fromCli('./src/persistence');
   const { updateAccountSettingsV2WithRetry } = fromCli('./src/settings/accountSettings/updateAccountSettingsV2WithRetry');
+  const credentials = await readCredentials();
+  if (!credentials) throw new Error('Sign in to the selected Workbench relay first.');
+  if (handoffOnly) {
+    const { version } = await updateAccountSettingsV2WithRetry({ credentials, mutate: addNeonOpusGuidance });
+    console.log('Neon → Opus rule present in account settings version ' + version);
+    return;
+  }
+  const worker = path.posix.join(serverHome, 'workbench-happier');
   const { AIBackendProfileSchema, DEFAULT_BUILT_IN_BACKEND_PROFILES } = fromCli('@happier-dev/protocol');
   const { AGENT_IDS } = fromCli('@happier-dev/agents');
   const definitions = [
@@ -42,8 +53,6 @@ async function configure() {
       },
     },
   ];
-  const credentials = await readCredentials();
-  if (!credentials) throw new Error('Sign in to the selected Workbench relay first.');
   await updateAccountSettingsV2WithRetry({credentials, mutate(settings) {
     const profiles = [...(settings.profiles ?? [])];
     const now = Date.now();
