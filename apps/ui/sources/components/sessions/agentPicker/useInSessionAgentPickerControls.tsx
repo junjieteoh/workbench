@@ -300,7 +300,7 @@ export type InSessionAgentPickerControls = Readonly<{
      * original next-message arm is no longer an eligible promise.
      */
     armedContinuationSubmissionIntent: ArmedAgentContinuation['intent'] | null;
-    clearArmedContinuation: () => void;
+    clearArmedContinuation: (expectedLocalId?: string) => void;
     /** Spends the matching live and persisted submission once canonical custody consumes it. */
     clearArmedContinuationSubmissionIfCurrent: (submission: SessionArmedAgentContinuationSubmission) => boolean;
     /** Captures the exact canonical user-message request before transition dispatch. */
@@ -594,10 +594,6 @@ export function useInSessionAgentPickerControls(
         }
     }
 
-    const clearArmedContinuation = React.useCallback(() => {
-        persistArmedContinuation(null);
-    }, [persistArmedContinuation]);
-
     // Custody spends both projections of the same submission, even before the
     // target metadata arrives. Ordinary disarming retains submitted custody;
     // this compare-clear is its sole spending owner and preserves a newer arm.
@@ -638,6 +634,11 @@ export function useInSessionAgentPickerControls(
         armedLocalIdRef.current = { key: armedIdentityKey, localId: randomUUID() };
     }
     const armedContinuationLocalId = armedLocalIdRef.current?.localId ?? null;
+
+    const clearArmedContinuation = React.useCallback((expectedLocalId?: string) => {
+        if (expectedLocalId !== undefined && armedLocalIdRef.current?.localId !== expectedLocalId) return;
+        persistArmedContinuation(null);
+    }, [persistArmedContinuation]);
 
     const recordArmedContinuationSubmission = React.useCallback((submission: SessionArmedAgentContinuationSubmission): boolean => {
         if (!featureEnabled || armed === null) return false;

@@ -37,7 +37,7 @@ import { resolveTrustedSessionAttachmentLocalImagePaths } from '@/session/attach
 import { admitSessionUserMessageToPendingQueue } from '@/session/services/admitSessionUserMessage';
 import { resolveSessionMessagePermissionIntent } from '@/session/services/resolveSessionMessagePermissionIntent';
 import { requestInactiveSessionResume } from '@/session/services/requestInactiveSessionResume';
-import { requestSessionStop } from '@/session/services/requestSessionStop';
+import { requestSessionStop, type LocalOwningMachineStop } from '@/session/services/requestSessionStop';
 import { resolveSessionUserMessageRequestedAction } from '@/session/services/resolveSessionUserMessageRequestedAction';
 import { resolveSessionTransportContext } from '@/session/services/resolveSessionTransportContext';
 import {
@@ -115,6 +115,8 @@ import {
  */
 
 export type SessionAgentTransitionCoordinatorDeps = Readonly<{
+  /** Same-daemon deferred request. Recheck exact runner/turn beside the signal. */
+  queuedSource?: LocalOwningMachineStop & Readonly<{ canStopSource: () => boolean }>;
   /** Bounded quiescence window before the stop. Defaults to the session-control stop budget. */
   idleTimeoutMs?: number;
   now?: () => number;
@@ -502,11 +504,20 @@ async function reconcileAlreadyTargetedSession(params: Readonly<{
   });
 }
 
-export async function runSessionAgentTransition(params: Readonly<{
+type SessionAgentTransitionParams = Readonly<{
   credentials: Credentials;
   request: SessionAgentTransitionRequestV1;
   deps?: SessionAgentTransitionCoordinatorDeps;
-}>): Promise<SessionAgentTransitionResultV1> {
+}>;
+
+export async function runSessionAgentTransition(params: SessionAgentTransitionParams): Promise<SessionAgentTransitionResultV1> {
+  return await runSessionAgentTransitionAttempt(params, null);
+}
+
+async function runSessionAgentTransitionAttempt(
+  params: SessionAgentTransitionParams,
+  retryWorkspacePath: string | null,
+): Promise<SessionAgentTransitionResultV1> {
   const now = params.deps?.now ?? Date.now;
   const localAgentNativeResumeRecordStore =
     params.deps?.localAgentNativeResumeRecordStore ?? createLocalAgentNativeResumeRecordStore();
@@ -594,6 +605,11 @@ export async function runSessionAgentTransition(params: Readonly<{
   const currentBackendTargetKey = buildBackendTargetKey(currentIdentity.backendTarget);
   const expectedBackendTarget = request.expectedCurrentBackendTarget
     ?? { kind: 'builtInAgent' as const, agentId: request.expectedCurrentAgentId };
+  if (retryWorkspacePath !== null && (workspacePath !== retryWorkspacePath
+    || currentAgentId !== request.expectedCurrentAgentId
+    || currentBackendTargetKey !== buildBackendTargetKey(expectedBackendTarget))) {
+    return effects.rejected('stale_selection');
+  }
 
   // Currentness is a committed metadata fact. A configured definition removed
   // after cutover cannot turn a retry into an untouched-source rejection.
@@ -675,7 +691,17 @@ export async function runSessionAgentTransition(params: Readonly<{
     return null;
   });
   if (!preStopSession) return effects.rejected('forbidden');
-  if (preStopSession.metadataVersion !== rawSession.metadataVersion) return effects.rejected('stale_selection');
+  if (preStopSession.metadataVersion !== rawSession.metadataVersion) {
+    logger.debug('[AGENT TRANSITION] Session metadata changed during preflight', {
+      sessionId: request.sessionId, before: rawSession.metadataVersion, after: preStopSession.metadataVersion,
+    });
+    // A finishing runner can publish its last metadata update during the idle check.
+    // Nothing has been stopped or sent. Recheck the same source and workspace once.
+    if (retryWorkspacePath === null && params.deps?.queuedSource?.canStopSource()) {
+      return await runSessionAgentTransitionAttempt(params, workspacePath);
+    }
+    return effects.rejected('stale_selection');
+  }
 
   // 7.2 step 4. The departing Agent's native pair is both current and committed
   // at this instant — the version check above just proved the preflight bytes
@@ -699,7 +725,10 @@ export async function runSessionAgentTransition(params: Readonly<{
     departureSeqInclusive: readTranscriptHeadSeq(preStopSession),
   });
 
+  const queuedSource = params.deps?.queuedSource;
+  if (queuedSource && !queuedSource.canStopSource()) return effects.rejected('source_not_idle');
   const stop = await requestSessionStop({
+    ...(queuedSource ? { localOwner: queuedSource } : {}),
     credentials: params.credentials,
     idOrPrefix: request.sessionId,
   }).catch(() => null);

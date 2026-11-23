@@ -35,6 +35,8 @@ import {
 } from './retireTerminalControlServiceability';
 
 export type StopSessionOptions = Readonly<{
+  /** Daemon-local condition for a turn-bound handoff. Checked immediately before signalling. */
+  canSignal?: () => boolean;
   source?: StopSessionRequestSource;
   transport?: 'machine_rpc' | 'local_http' | 'internal' | 'marker_fallback';
 }>;
@@ -57,6 +59,7 @@ function isTrackedChildStillLiveForPid(session: TrackedSession, pid: number): bo
 }
 
 async function taskkillWindowsDaemonChild(params: Readonly<{
+  canSignal?: () => boolean;
   pid: number;
   session: TrackedSession;
   normalizedSessionId: string;
@@ -78,6 +81,7 @@ async function taskkillWindowsDaemonChild(params: Readonly<{
     return false;
   }
 
+  if (params.canSignal && !params.canSignal()) return false;
   params.recordKillAudit({
     actor: 'daemon.stop-session',
     reason: 'stop-session',
@@ -432,6 +436,7 @@ export function createStopSession(params: Readonly<{
           trackedPids: pidsToStop,
         }).catch(() => false)
       : false;
+    if (options.canSignal && !options.canSignal()) return incompleteStopSession('runner_signal_incomplete');
     let stoppedAny = false;
     const signaledPids: number[] = runnersAlreadyExited ? [...pidsToStop] : [];
     const confirmedExitedPids: number[] = runnersAlreadyExited ? [...pidsToStop] : [];
@@ -441,7 +446,7 @@ export function createStopSession(params: Readonly<{
 
       if (session.startedBy === 'daemon' && session.childProcess) {
         if (process.platform === 'win32') {
-          if (await taskkillWindowsDaemonChild({ pid, session, normalizedSessionId, logPidReuseRefusal, recordKillAudit })) {
+          if (await taskkillWindowsDaemonChild({ pid, session, normalizedSessionId, logPidReuseRefusal, recordKillAudit, canSignal: options.canSignal })) {
             stoppedAny = true;
             signaledPids.push(pid);
           }
@@ -502,6 +507,7 @@ export function createStopSession(params: Readonly<{
         logPidReuseRefusal(`[DAEMON RUN] Refusing to SIGTERM PID ${pid} for session ${normalizedSessionId} (PID reuse safety)`);
         continue;
       }
+      if (options.canSignal && !options.canSignal()) return incompleteStopSession('runner_signal_incomplete');
 
       try {
         recordKillAudit({

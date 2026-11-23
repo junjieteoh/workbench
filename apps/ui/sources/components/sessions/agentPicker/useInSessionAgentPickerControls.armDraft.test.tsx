@@ -8,7 +8,8 @@ import type { ServerAccountScope } from '@/sync/domains/scope/serverAccountScope
 import { existingSessionDraftSemanticValues } from '@/sync/domains/input/drafts/existingSessionDraftSemanticValues';
 import { writeExistingSessionDraft } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
 import type { SessionArmedAgentContinuation } from '@/sync/domains/input/draftValues/sessionDraftValueTypes';
-import { continueSessionWithArmedAgent } from '@/sync/domains/session/input/continueSessionWithArmedAgent';
+import { useSessionAgentTransitionQueue } from '@/hooks/session/useSessionAgentTransitionQueue';
+import { buildArmedAgentTransitionRequest, continueSessionWithArmedAgent } from '@/sync/domains/session/input/continueSessionWithArmedAgent';
 
 import {
     useInSessionAgentPickerControls,
@@ -192,6 +193,43 @@ describe('useInSessionAgentPickerControls arm draft', () => {
                 inspections: params.payload.selections.map(() => AVAILABLE),
             })
         ));
+    });
+
+    it('arms the next agent through the native picker during a turn and restores its queue when the thread reopens', async () => {
+        let queued: { status: 'queued'; turnId: string; localId: string; target: unknown } | null = null;
+        machineRpcWithServerScope.mockImplementation(async ({ payload }) => {
+            if (payload.action === 'get') return queued ?? { status: 'empty' };
+            if (payload.action === 'schedule') {
+                queued = { status: 'queued', turnId: payload.turnId, localId: payload.transition.input.localId, target: payload.transition.selection };
+                return queued;
+            }
+            return { v: 1, inspections: payload.selections.map(() => AVAILABLE) };
+        });
+        const picker = await renderControls({ entries: [entry('claude'), entry('gemini'), entry('codex')] });
+        const queue = await renderHook(({ visible }: { visible: boolean }) => useSessionAgentTransitionQueue({
+            sessionId: 'session-1', accountScopeKey: 'account-1', machine: onlineMachine, activeTurnId: 'current-turn', enabled: visible,
+        }), { initialProps: { visible: true } });
+        try {
+            expect(queue.getCurrent().state?.status).toBe('empty');
+            await armTarget(picker, 'agent:gemini');
+            const intent = picker.getCurrent().armedContinuation;
+            const localId = picker.getCurrent().armedContinuationLocalId;
+            if (!localId || !intent) throw new Error('Expected the selected agent to be armed');
+            await act(async () => {
+                await queue.getCurrent().request({ action: 'schedule', sessionId: 'session-1', turnId: 'current-turn',
+                    transition: buildArmedAgentTransitionRequest({ sessionId: 'session-1', serverId: 'server-1', machineId: 'machine-1',
+                        input: { text: 'Review the result' }, intent, localId, sourceAgentLabel: 'Claude', targetAgentLabel: 'Gemini' }) });
+            });
+            expect(queue.getCurrent().state).toMatchObject({ status: 'queued', localId, target: { agentId: 'gemini' } });
+            await queue.rerender({ visible: false });
+            expect(queue.getCurrent().state).toBeNull();
+            await queue.rerender({ visible: true });
+            expect(queue.getCurrent().state).toMatchObject({ status: 'queued', localId });
+            expect(machineRpcWithServerScope.mock.lastCall?.[0].payload).toEqual({ action: 'get', sessionId: 'session-1' });
+        } finally {
+            await picker.unmount();
+            await queue.unmount();
+        }
     });
 
     it('restores configured B only while its exact configured source remains A', async () => {

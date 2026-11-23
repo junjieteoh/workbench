@@ -408,6 +408,7 @@ export class ApiMachineClient {
     }
 
     setRPCHandlers({
+        queuedAgentTransition,
         spawnSession,
         spawnSessionForHandoff,
         resolveSpawnSessionByNonce,
@@ -426,6 +427,7 @@ export class ApiMachineClient {
             rpcHandlerManager: this.rpcHandlerManager,
             machineId: this.machine.id,
             handlers: {
+                queuedAgentTransition,
                 spawnSession,
                 ...(spawnSessionForHandoff ? { spawnSessionForHandoff } : {}),
                 ...(resolveSpawnSessionByNonce ? { resolveSpawnSessionByNonce } : {}),

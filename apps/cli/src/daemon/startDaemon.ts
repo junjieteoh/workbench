@@ -138,6 +138,8 @@ import { HAPPIER_CLAUDE_ENDPOINT_STATE_ENV_KEY } from '@/backends/claude/endpoin
 import { buildTerminalAttachmentMetadataFromHostHandle } from '@/agent/runtime/terminal/attachmentMetadata';
 import { adoptReportedHappySessionId, adoptReportedSessionRunnerIdentity, correlateTrackedSessionReport, createOnHappySessionWebhook } from './sessions/onHappySessionWebhook';
 import { applyTrackedSessionTurnLifecycle } from './sessions/applyTrackedSessionTurnLifecycle';
+import { createQueuedSessionAgentTransition } from '@/session/agentTransition/queuedSessionAgentTransition';
+import { runSessionAgentTransition } from '@/session/agentTransition/sessionAgentTransitionCoordinator';
 import { connectedServiceTurnLifecycleContinue } from './connectedServices/connectedServiceTurnLifecycleContract';
 import { resolveSessionRuntimeSnapshot } from './sessions/runtimeSnapshot/resolveSessionRuntimeSnapshot';
 import { resolveRespawnSessionRuntimeSnapshot } from './sessions/runtimeSnapshot/resolveRespawnSessionRuntimeSnapshot';
@@ -5086,6 +5088,29 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
 
         let observeConnectedServiceRestartProcessMissing: ((tracked: TrackedSession) => Promise<void>) | null = null;
 
+        const queuedAgentTransition = createQueuedSessionAgentTransition({
+          onFailure: (details) => logger.warn('[AGENT TRANSITION] Queued handoff ended without confirmed delivery', details),
+          readRunner: (sessionId) => {
+            const [runner, duplicate] = getCurrentChildren().filter((child) => child.happySessionId === sessionId);
+            if (!runner || duplicate) return null;
+            return { pid: runner.sessionRunnerPid ?? runner.pid, activeTurnId: runner.activeTurnId ?? null };
+          },
+          run: async (request, canStopSource) => {
+            const result = await runSessionAgentTransition({
+              credentials, request,
+              deps: { queuedSource: {
+                machineId, canStopSource,
+                stop: (sessionId) => stopSession(sessionId, { canSignal: canStopSource, transport: 'internal' }),
+              } },
+            });
+            if (result.type !== 'accepted') {
+              logger.warn('[AGENT TRANSITION] Deferred switch did not confirm admission', {
+                sessionId: request.sessionId, outcome: result.type, code: 'code' in result ? result.code : undefined,
+              });
+            }
+            return result.type === 'accepted';
+          },
+        });
         const connectedServiceTurnDeferralQueue = createConnectedServiceSwitchDeferralQueue({
           timeoutMs: resolvePositiveIntEnv(
             process.env.HAPPIER_CONNECTED_SERVICES_TURN_DEFERRAL_TIMEOUT_MS,
@@ -5701,6 +5726,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             });
         const onChildExited = async (pid: number, exit: { reason: string; code: number | null; signal: string | null }) => {
           const trackedBeforeExit = pidToTrackedSession.get(pid) ?? null;
+          if (trackedBeforeExit?.happySessionId) {
+            queuedAgentTransition.failQueuedForRunner(trackedBeforeExit.happySessionId, trackedBeforeExit.sessionRunnerPid ?? pid);
+          }
           const wasConnectedServicesRestartRequested = connectedServicesRestartRequestedPids.has(pid);
           await onChildExitedBase(pid, exit);
           if (!pidToTrackedSession.has(pid)) {
@@ -7197,6 +7225,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         // pending or failed cleanup cannot leave the session looking busy.
         const isTurnStart = input.event === 'prompt_or_steer' || input.event === 'task_started';
         if (isTurnStart) {
+          queuedAgentTransition.startTurn(input.sessionId, input.turnId);
           connectedServiceTurnDeferralQueue.recordTurnLifecycleEvent({
             sessionId: input.sessionId,
             event: input.event,
@@ -7204,6 +7233,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         }
         const trackedTurnResult = await applyTrackedSessionTurnLifecycle({
           trackedSessions: getCurrentChildren(),
+          onTerminalMarkerFailure: queuedAgentTransition.failQueuedForRunner,
           sessionId: input.sessionId,
           event: input.event,
           ...(input.turnId ? { turnId: input.turnId } : {}),
@@ -7215,6 +7245,11 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           });
         }
         if (trackedTurnResult.status === 'recorded') {
+          if (input.turnId && (input.event === 'turn_cancelled' || input.event === 'assistant_message_end')) {
+            // A transition stops this IPC caller. Release the acknowledgement without waiting for it.
+            void queuedAgentTransition.finishTurn(input.sessionId, input.turnId,
+              input.event === 'turn_cancelled' ? 'cancelled' : input.terminalStatus === 'completed' ? 'completed' : 'failed');
+          }
           await temporaryThrottleRecoveryScheduler.recordTurnLifecycle({ ...input, observedAtMs: lifecycleObservedAtMs });
         }
         // REV-1: failTurn emits `assistant_message_end` too — a FAILED turn (the
@@ -8645,6 +8680,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 await providerAccountSettings.refresh();
               });
               connectedApiMachine.setRPCHandlers({
+                queuedAgentTransition: queuedAgentTransition.handle,
                 spawnSession,
                 spawnSessionForHandoff: spawnSession,
                 resolveSpawnSessionByNonce: resolveDaemonSpawnSessionByNonce,

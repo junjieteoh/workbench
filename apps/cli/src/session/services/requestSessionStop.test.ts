@@ -129,6 +129,21 @@ describe('requestSessionStop marker fallback', () => {
     expect(mocks.listSessionMarkers).not.toHaveBeenCalled();
   });
 
+  it('uses the guarded in-process stop only on the confirmed owner of the source session', async () => {
+    const { requestSessionStop } = await import('./requestSessionStop');
+    const sessionId = 'sess-marker-stop';
+    const machineId = 'worker-a';
+    mocks.resolveSessionIdOrPrefix.mockResolvedValue({ ok: true, sessionId, rawSession: { id: sessionId, machineId, active: true } });
+    const stop = vi.fn(async () => ({ status: 'stopped' } as const));
+    const common = { credentials, idOrPrefix: sessionId };
+    expect(await requestSessionStop({ ...common, localOwner: { machineId: 'worker-b', stop } })).toMatchObject({ stopped: false });
+    expect(stop).not.toHaveBeenCalled();
+    expect(await requestSessionStop({ ...common, localOwner: { machineId, stop } })).toMatchObject({ stopped: true });
+    expect(stop).toHaveBeenCalledExactlyOnceWith(sessionId);
+    expect(mocks.callMachineRpc).not.toHaveBeenCalled();
+    expect(mocks.stopDaemonSession).not.toHaveBeenCalled();
+  });
+
   it('routes a stop only to the exact machine recorded by the session', async () => {
     mocks.resolveSessionIdOrPrefix.mockResolvedValue({
       ok: true,

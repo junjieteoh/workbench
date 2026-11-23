@@ -87,8 +87,23 @@ describe('applyTrackedSessionTurnLifecycle', () => {
     expect(current.activeTurnId).toBe('session-turn:existing');
   });
 
+  it('reports a refused terminal marker only for the matching runner and turn', async () => {
+    const current = tracked({ activeTurnId: 'open-turn' });
+    const onTerminalMarkerFailure = vi.fn();
+    const input = {
+      trackedSessions: [current], sessionId: 'session-1', event: 'assistant_message_end' as const,
+      updateSessionMarkerActiveTurn: async () => false, onTerminalMarkerFailure,
+    };
+    await applyTrackedSessionTurnLifecycle({ ...input, turnId: 'stale-turn' });
+    expect(onTerminalMarkerFailure).not.toHaveBeenCalled();
+    await applyTrackedSessionTurnLifecycle({ ...input, turnId: 'open-turn' });
+    expect(onTerminalMarkerFailure).toHaveBeenCalledExactlyOnceWith('session-1', 42, 'open-turn');
+    expect(current.activeTurnId).toBe('open-turn');
+  });
+
   it('preserves volatile turn state when marker persistence fails', async () => {
     const current = tracked({ activeTurnId: 'session-turn:existing' });
+    const onTerminalMarkerFailure = vi.fn();
     const updateSessionMarkerActiveTurn = vi.fn(async () => {
       throw new Error('marker write failed');
     });
@@ -98,8 +113,9 @@ describe('applyTrackedSessionTurnLifecycle', () => {
       sessionId: 'session-1',
       event: 'assistant_message_end',
       turnId: 'session-turn:existing',
-      updateSessionMarkerActiveTurn,
+      updateSessionMarkerActiveTurn, onTerminalMarkerFailure,
     })).rejects.toThrow('marker write failed');
+    expect(onTerminalMarkerFailure).toHaveBeenCalledExactlyOnceWith('session-1', 42, 'session-turn:existing');
     expect(current.activeTurnId).toBe('session-turn:existing');
   });
 });

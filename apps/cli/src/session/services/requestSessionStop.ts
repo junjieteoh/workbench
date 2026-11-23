@@ -294,7 +294,13 @@ async function cleanupStoppedSessionMarkersBestEffort(sessionId: string): Promis
   );
 }
 
+export type LocalOwningMachineStop = Readonly<{
+  machineId: string;
+  stop: (sessionId: string) => Promise<StopSessionResult>;
+}>;
+
 export async function requestSessionStop(params: Readonly<{
+  localOwner?: LocalOwningMachineStop;
   credentials: Credentials;
   idOrPrefix: string;
   source?: StopSessionRequestSource;
@@ -319,7 +325,7 @@ export async function requestSessionStop(params: Readonly<{
       credentials: params.credentials,
       rawSession: resolved.rawSession,
     });
-    if (!owningMachine.ok) {
+    if (!owningMachine.ok || (params.localOwner && owningMachine.machineId !== params.localOwner.machineId)) {
       return {
         ok: true,
         sessionId: resolved.sessionId,
@@ -331,7 +337,7 @@ export async function requestSessionStop(params: Readonly<{
       };
     }
     if (owningMachine.machineId) {
-      const physicalStopResult = await stopSessionOnOwningMachine({
+      const physicalStopResult = params.localOwner ? await params.localOwner.stop(resolved.sessionId) : await stopSessionOnOwningMachine({
         credentials: params.credentials,
         sessionId: resolved.sessionId,
         machineId: owningMachine.machineId,

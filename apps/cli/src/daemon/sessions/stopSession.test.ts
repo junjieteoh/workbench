@@ -169,6 +169,23 @@ describe('createStopSession', () => {
     expect(killSpy).toHaveBeenCalledWith(111, 'SIGTERM');
   });
 
+  it('rechecks a deferred stop after async PID validation and preserves a newer turn', async () => {
+    const { createStopSession } = await import('./stopSession');
+    const { isPidSafeHappySessionProcess } = await import('../pidSafety');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    let sameTurn = true;
+    vi.mocked(isPidSafeHappySessionProcess).mockImplementationOnce(async () => {
+      sameTurn = false;
+      return true;
+    });
+    const stop = createStopSession({
+      pidToTrackedSession: new Map([[111, { startedBy: 'terminal', pid: 111, happySessionId: 's' }]]),
+      readAttachmentState: async () => ({ status: 'absent' }),
+    });
+    expect(await stop('s', { canSignal: () => sameTurn })).toMatchObject({ status: 'incomplete' });
+    expect(killSpy).not.toHaveBeenCalledWith(111, 'SIGTERM');
+  });
+
   it('fails closed when marker provenance cannot prove whether a host exists', async () => {
     const { createStopSession } = await import('./stopSession');
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true as any);

@@ -1,0 +1,109 @@
+import { isDeepStrictEqual } from 'node:util';
+
+import type {
+    SessionAgentTransitionQueueRequestV1,
+    SessionAgentTransitionQueueResultV1,
+    SessionAgentTransitionRequestV1,
+} from '@happier-dev/protocol';
+
+type Summary = Extract<SessionAgentTransitionQueueResultV1, { turnId: string }>;
+type QueueEntry = {
+    summary: Summary;
+    runnerPid: number;
+    request?: SessionAgentTransitionRequestV1;
+    superseded: boolean;
+};
+type Runner = Readonly<{ pid: number; activeTurnId: string | null }>;
+
+export function createQueuedSessionAgentTransition(deps: Readonly<{
+    readRunner: (sessionId: string) => Runner | null;
+    onFailure?: (details: Readonly<{ sessionId: string; turnId: string; reason: string }>) => void;
+    run: (request: SessionAgentTransitionRequestV1, canStopSource: () => boolean) => Promise<boolean>;
+}>) {
+    // One daemon owns these armed requests across every paired client. Reboot disarms them.
+    const entries = new Map<string, QueueEntry>();
+
+    function settle(entry: QueueEntry, status: 'cancelled' | 'completed' | 'failed') {
+        entry.summary = { ...entry.summary, status };
+        delete entry.request;
+    }
+
+    function fail(entry: QueueEntry, reason: string) {
+        const sessionId = entry.request?.sessionId;
+        settle(entry, 'failed');
+        if (sessionId) deps.onFailure?.({ sessionId, turnId: entry.summary.turnId, reason });
+    }
+
+    function handle(command: SessionAgentTransitionQueueRequestV1): SessionAgentTransitionQueueResultV1 {
+        const entry = entries.get(command.sessionId);
+        if (command.action === 'get') return entry?.summary ?? { status: 'empty' };
+        if (command.action === 'cancel') {
+            if (!entry) return { status: 'empty' };
+            if (command.localId !== entry.summary.localId) return { status: 'rejected', reason: 'turn_changed' };
+            if (entry.summary.status === 'queued') settle(entry, 'cancelled');
+            return entry.summary;
+        }
+
+        const { turnId, transition } = command;
+        if (transition.sessionId !== command.sessionId) return { status: 'rejected', reason: 'invalid_request' };
+        if (entry?.summary.localId === transition.input.localId) {
+            if (entry.summary.turnId !== turnId || (entry.request && !isDeepStrictEqual(entry.request, transition))) {
+                return { status: 'rejected', reason: 'invalid_request' };
+            }
+            return entry.summary;
+        }
+        if (entry?.summary.status === 'queued' || entry?.summary.status === 'dispatching') {
+            return { status: 'rejected', reason: 'already_queued' };
+        }
+        const runner = deps.readRunner(command.sessionId);
+        if (!runner || runner.activeTurnId !== turnId) return { status: 'rejected', reason: 'turn_changed' };
+        const summary: Summary = { status: 'queued', turnId, localId: transition.input.localId, target: transition.selection };
+        entries.set(command.sessionId, { summary, runnerPid: runner.pid, request: transition, superseded: false });
+        return summary;
+    }
+
+    function startTurn(sessionId: string, turnId: string | undefined) {
+        const entry = entries.get(sessionId);
+        if (!entry || turnId === entry.summary.turnId) return;
+        if (entry.summary.status === 'dispatching') entry.superseded = true;
+        // A turnless prompt can also be a steer on the already tracked source turn.
+        if (turnId && entry.summary.status === 'queued') fail(entry, 'new_source_turn');
+    }
+
+    async function finishTurn(sessionId: string, turnId: string, status: 'completed' | 'cancelled' | 'failed') {
+        const entry = entries.get(sessionId);
+        if (!entry?.request || entry.summary.status !== 'queued' || entry.summary.turnId !== turnId) return;
+        const canStopSource = () => {
+            const runner = deps.readRunner(sessionId);
+            return !entry.superseded && runner?.pid === entry.runnerPid && runner.activeTurnId === null;
+        };
+        if (status !== 'completed') {
+            if (status === 'failed') fail(entry, 'source_turn_failed');
+            else settle(entry, 'cancelled');
+            return;
+        }
+        if (!canStopSource()) {
+            fail(entry, 'source_runner_changed');
+            return;
+        }
+
+        entry.summary = { ...entry.summary, status: 'dispatching' };
+        try {
+            const accepted = await deps.run(entry.request, canStopSource);
+            if (accepted) settle(entry, 'completed');
+            else fail(entry, 'transition_refused');
+        } catch {
+            // A lost answer can follow cutover. Never automatically replay the input.
+            fail(entry, 'transition_result_unknown');
+        }
+    }
+
+    function failQueuedForRunner(sessionId: string, runnerPid: number, turnId?: string) {
+        const entry = entries.get(sessionId);
+        if (entry?.runnerPid !== runnerPid || entry.summary.status !== 'queued') return;
+        if (turnId === undefined) fail(entry, 'source_runner_exited');
+        else if (entry.summary.turnId === turnId) fail(entry, 'terminal_marker_missing');
+    }
+
+    return { handle, startTurn, finishTurn, failQueuedForRunner };
+}

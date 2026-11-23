@@ -54,6 +54,18 @@ const armedContinuationState = vi.hoisted(() => ({
     submission: null as any,
     submissionIntent: null as any,
 }));
+const handoffRecords = vi.hoisted(() => new Map<string, string>());
+vi.mock('@/sync/domains/state/browserRecordStorage', async (original) => ({
+    ...await original<typeof import('@/sync/domains/state/browserRecordStorage')>(),
+    readBrowserRecord: async (key: string) => handoffRecords.get(key),
+    updateBrowserRecord: async (key: string, apply: (oldValue: string | undefined) => { value: string | undefined; result: unknown }) => {
+        const next = apply(handoffRecords.get(key));
+        if (next.value === undefined) handoffRecords.delete(key);
+        else handoffRecords.set(key, next.value);
+        return next.result;
+    },
+}));
+const transitionQueueRpc = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => ({ status: 'empty' })));
 const clearArmedContinuationSpy = vi.hoisted(() => vi.fn());
 const clearArmedContinuationSubmissionSpy = vi.hoisted(() => vi.fn(() => true));
 const recordArmedContinuationSubmissionSpy = vi.hoisted(() => vi.fn());
@@ -391,6 +403,7 @@ vi.mock('@/components/sessions/agentPicker/useInSessionAgentPickerControls', () 
     }),
 }));
 vi.mock('@/sync/ops/sessionAgentTransition', () => ({
+    sessionAgentTransitionQueueOnMachine: transitionQueueRpc,
     runSessionAgentTransitionOnMachine: (...args: any[]) => runSessionAgentTransitionSpy(...args),
 }));
 
@@ -2162,6 +2175,113 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             armedContinuationState.submission = null;
             armedContinuationState.submissionIntent = null;
         };
+
+        it('queues instructions for the exact running turn and cancels from the same session', async () => {
+            armSecondAgent();
+            sessionState.session.active = true;
+            sessionState.session.presence = 'online';
+            sessionState.session.latestTurnId = 'first-turn';
+            sessionState.session.latestTurnStatus = 'in_progress';
+            featureEnabledState.reviewComments = false;
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            const target = { v: 1, agentId: 'claude', modelId: 'chosen-model' };
+            armedContinuationState.intent.selection = target;
+            const scheduled = { status: 'queued', turnId: 'first-turn', localId: 'armed-local-id', target };
+            let acknowledge!: () => void;
+            const admission = new Promise<void>((resolve) => { acknowledge = resolve; });
+            transitionQueueRpc.mockImplementation(async ({ request }) => {
+                if (request.action === 'schedule') { await admission; return scheduled; }
+                if (request.action === 'cancel') return { ...scheduled, status: 'cancelled' };
+                return { status: 'empty' };
+            });
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            try {
+                const input = () => {
+                    const result = screen.tree && findTestInstanceByTypeWithProps(screen.tree, 'AgentInput', {});
+                    if (!result) throw new Error('AgentInput not mounted');
+                    return result;
+                };
+                expect(input().props.queueHandoffAfterTurnId).toBe('first-turn');
+                await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', 'Review the result', 'AgentInput'); });
+                await act(async () => { invokeTestInstanceHandler(input(), 'onSend', { queueHandoffAfterTurnId: 'first-turn' }, 'AgentInput'); });
+                expect(transitionQueueRpc).toHaveBeenCalledWith(expect.objectContaining({
+                    request: { sessionId: 's1', action: 'schedule', turnId: 'first-turn', transition: expect.objectContaining({
+                        selection: target, input: expect.objectContaining({ text: 'Review the result', localId: 'armed-local-id' }),
+                    }) },
+                }));
+                expect(clearArmedContinuationSpy).not.toHaveBeenCalled();
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('Review the result');
+                await act(async () => { acknowledge(); await Promise.all(pendingFireAndForget); });
+                expect(clearArmedContinuationSpy).toHaveBeenCalledWith('armed-local-id');
+                expect(runSessionAgentTransitionSpy).not.toHaveBeenCalled();
+                await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', 'Newer draft', 'AgentInput'); });
+                await act(async () => { await screen.pressByTestId('session-queued-handoff-cancel'); });
+                expect(transitionQueueRpc).toHaveBeenCalledWith(expect.objectContaining({
+                    request: { sessionId: 's1', action: 'cancel', localId: 'armed-local-id' },
+                }));
+                expect(screen.findByTestId('session-queued-handoff')).toBeNull();
+                const copy = vi.spyOn(await import('@/utils/ui/clipboard'), 'setClipboardStringSafe').mockResolvedValue(true);
+                try {
+                    await act(async () => { await screen.pressByTestId('session-handoff-copy-armed-local-id'); });
+                    expect(copy).toHaveBeenCalledWith('Review the result');
+                    expect(draftHookState.valuesBySessionId.get('s1')).toBe('Newer draft');
+                    await screen.unmount();
+                    // The client and worker restarted. The worker no longer remembers the queue.
+                    const reopened = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+                    try {
+                        await act(async () => { await reopened.pressByTestId('session-handoff-copy-armed-local-id'); });
+                        expect(copy).toHaveBeenCalledTimes(2);
+                        expect(runSessionAgentTransitionSpy).not.toHaveBeenCalled();
+                    } finally {
+                        await reopened.unmount();
+                    }
+                } finally {
+                    copy.mockRestore();
+                    handoffRecords.clear();
+                }
+            } finally {
+                acknowledge();
+                await screen.unmount();
+                transitionQueueRpc.mockReset().mockResolvedValue({ status: 'empty' });
+                delete sessionState.session.latestTurnId;
+                delete sessionState.session.latestTurnStatus;
+            }
+        });
+
+        it.each(['failed', 'completed', 'admitted-before-restart'] as const)(
+            'preserves failed instructions and retires confirmed admissions (%s)', async (scenario) => {
+                sessionMachineTargetState.available = true;
+                const localId = 'handoff-recovery-id';
+                const { queuedHandoffInstructionsKey, readQueuedHandoffInstructions, updateQueuedHandoffInstructions } =
+                    await import('@/sync/domains/input/drafts/queuedHandoffInstructions');
+                const { serverAccountScopeKeySuffix } = await import('@/sync/domains/scope/serverAccountScope');
+                const key = queuedHandoffInstructionsKey(serverAccountScopeKeySuffix(TEST_SERVER_ACCOUNT_SCOPE), 's1');
+                await updateQueuedHandoffInstructions(key, localId, 'Original instructions');
+                if (scenario === 'admitted-before-restart') {
+                    sessionPendingStoreState.current = { s1: { isLoaded: true, messages: [{ source: 'server_pending', localId }], discarded: [] } };
+                    transitionQueueRpc.mockResolvedValue({ status: 'empty' });
+                } else {
+                    transitionQueueRpc.mockResolvedValue({ status: scenario, localId, turnId: 'first-turn', target: { v: 1, agentId: 'claude' } });
+                }
+                const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+                try {
+                    if (scenario === 'failed') {
+                        expect(screen.findByTestId(`session-handoff-copy-${localId}`)).not.toBeNull();
+                        expect(await readQueuedHandoffInstructions(key)).toEqual([{ localId, text: 'Original instructions' }]);
+                    } else {
+                        expect(screen.findByTestId(`session-handoff-copy-${localId}`)).toBeNull();
+                        expect(await readQueuedHandoffInstructions(key)).toEqual([]);
+                    }
+                    expect(runSessionAgentTransitionSpy).not.toHaveBeenCalled();
+                } finally {
+                    await screen.unmount();
+                    handoffRecords.clear();
+                    sessionPendingStoreState.current = {};
+                    transitionQueueRpc.mockReset().mockResolvedValue({ status: 'empty' });
+                }
+            },
+        );
 
         it.each(['', ' \n\t '])('continues with a default prompt while retaining the real blank draft snapshot (%j)', async (text) => {
             armSecondAgent();

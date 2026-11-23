@@ -26,6 +26,7 @@ export async function applyTrackedSessionTurnLifecycle(input: Readonly<{
   event: TurnLifecycleEvent;
   turnId?: string;
   updateSessionMarkerActiveTurn?: typeof updateSessionMarkerActiveTurn;
+  onTerminalMarkerFailure?: (sessionId: string, runnerPid: number, turnId: string) => void;
 }>): Promise<TrackedSessionTurnLifecycleResult> {
   const matches = Array.from(input.trackedSessions).filter(
     (tracked) => tracked.happySessionId === input.sessionId,
@@ -50,11 +51,17 @@ export async function applyTrackedSessionTurnLifecycle(input: Readonly<{
   }
 
   const nextActiveTurnId = isTerminal ? null : turnId;
-  const markerUpdated = await (input.updateSessionMarkerActiveTurn ?? updateSessionMarkerActiveTurn)({
-    pid: tracked.sessionRunnerPid ?? tracked.pid,
-    sessionId: input.sessionId,
-    activeTurnId: nextActiveTurnId,
-  });
+  const runnerPid = tracked.sessionRunnerPid ?? tracked.pid;
+  let markerUpdated = false;
+  try {
+    markerUpdated = await (input.updateSessionMarkerActiveTurn ?? updateSessionMarkerActiveTurn)({
+      pid: runnerPid,
+      sessionId: input.sessionId,
+      activeTurnId: nextActiveTurnId,
+    });
+  } finally {
+    if (isTerminal && !markerUpdated) input.onTerminalMarkerFailure?.(input.sessionId, runnerPid, turnId);
+  }
   if (!markerUpdated) {
     return { status: 'ignored_marker_not_updated', activeTurnId: currentActiveTurnId };
   }
