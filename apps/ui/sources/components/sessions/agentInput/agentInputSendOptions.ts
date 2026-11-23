@@ -4,6 +4,7 @@ import { t } from '@/text';
 
 export type AgentInputSendOptions = Readonly<{
     forceImmediate?: boolean;
+    queueHandoffAfterTurnId?: string;
     sendNextQueued?: boolean;
     deliveryIntent?: MessageSendMode;
     /** New-session composer: what follows this Send, overriding the "After sending" setting. */
@@ -12,7 +13,7 @@ export type AgentInputSendOptions = Readonly<{
     inputTextOverride?: string;
 }>;
 
-export type AgentInputSendIntentOptions = Readonly<Pick<AgentInputSendOptions, 'forceImmediate' | 'deliveryIntent' | 'afterSend'>>;
+export type AgentInputSendIntentOptions = Readonly<Pick<AgentInputSendOptions, 'forceImmediate' | 'deliveryIntent' | 'afterSend' | 'queueHandoffAfterTurnId'>>;
 
 export type AgentInputSendMenuItem = Readonly<{
     id: string;

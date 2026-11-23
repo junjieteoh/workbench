@@ -9,7 +9,7 @@ vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', (
     machineRpcWithServerScope: mockMachineRpcWithServerScope,
 }));
 
-import { runSessionAgentTransitionOnMachine } from '../sessionAgentTransition';
+import { runSessionAgentTransitionOnMachine, sessionAgentTransitionQueueOnMachine } from '../sessionAgentTransition';
 
 function buildRequest(sessionId: string) {
     return {
@@ -73,4 +73,16 @@ describe('runSessionAgentTransitionOnMachine authorization', () => {
             sessionId: call.payload.sessionId,
         });
     });
+});
+
+it('addresses the native queue as an editable session and never interprets an older worker as offering a queue', async () => {
+    mockMachineRpcWithServerScope.mockResolvedValueOnce({ type: 'rejected', code: 'unsupported_operation', sourceEffect: 'none' });
+    await expect(sessionAgentTransitionQueueOnMachine({
+        machineId: 'm1', serverId: 's1', request: { action: 'get', sessionId: 'session-a' },
+    })).resolves.toEqual({ status: 'rejected', reason: 'unsupported' });
+    expect(mockMachineRpcWithServerScope).toHaveBeenLastCalledWith(expect.objectContaining({
+        method: RPC_METHODS.SESSION_AGENT_TRANSITION,
+        authorization: { kind: SOCKET_RPC_AUTHORIZATION_CONTEXT_KINDS.SESSION_WRITE, sessionId: 'session-a' },
+        payload: { action: 'get', sessionId: 'session-a' },
+    }));
 });

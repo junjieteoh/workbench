@@ -56,6 +56,7 @@ import { Metadata } from '@/sync/domains/state/storageTypes';
 import { getProfileEnvironmentVariables, type AIBackendProfile } from '@/sync/domains/profiles/profileCompatibility';
 import { DEFAULT_AGENT_ID, getAgentBehavior, getAgentCore, type AgentId } from '@/agents/catalog/catalog';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
+import { RoundButton } from '@/components/ui/buttons/RoundButton';
 import { AgentIcon } from '@/agents/registry/AgentIcon';
 // From the registry rather than the catalog facade: this narrows an id the picker
 // supplied, which is the same check the send control's presentation resolver makes.
@@ -388,6 +389,7 @@ interface AgentInputProps {
      * send control names it, because pressing send with a target armed continues
      * this Session with that Agent rather than the one running now.
      */
+    queueHandoffAfterTurnId?: string | null;
     armedContinuationTarget?: Readonly<{
         agentId: string;
         label: string;
@@ -1670,11 +1672,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         const hasStructuredInputMeta = Object.keys(structuredInputMetaOverrides).length > 0;
         const shouldCarryLiveInputText = !props.sessionId || liveInputText !== props.value;
         props.onSend(
-            options?.forceImmediate === true || options?.deliveryIntent != null || options?.afterSend != null || hasStructuredInputMeta
+            options?.forceImmediate === true || options?.deliveryIntent != null || options?.afterSend != null || options?.queueHandoffAfterTurnId != null || hasStructuredInputMeta
                 ? {
                     ...(options?.forceImmediate === true ? { forceImmediate: true } : {}),
                     ...(options?.deliveryIntent != null ? { deliveryIntent: options.deliveryIntent } : {}),
                     ...(options?.afterSend != null ? { afterSend: options.afterSend } : {}),
+                    ...(options?.queueHandoffAfterTurnId ? { queueHandoffAfterTurnId: options.queueHandoffAfterTurnId } : {}),
                     ...(hasStructuredInputMeta ? { structuredInputMetaOverrides } : {}),
                     ...(shouldCarryLiveInputText ? { inputTextOverride: liveInputText } : {}),
                 }
@@ -3248,6 +3251,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         </View>
     );
 
+    const queueHandoffAfterTurnId = props.queueHandoffAfterTurnId;
     const renderActionFooterSection = () => (
         <View
             style={styles.nativeKeyboardFooterSection}
@@ -3255,6 +3259,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 updateLayoutHeight(setActionFooterHeightPx, event.nativeEvent.layout.height);
             }}
         >
+            {props.armedContinuationTarget && queueHandoffAfterTurnId ? (
+                <View style={{ alignSelf: 'flex-end' }}>
+                    <RoundButton
+                        size="small"
+                        testID="agent-input-queue-handoff"
+                        title={t('session.agentContinuation.queueAfterTurn')}
+                        disabled={sendActionDisabled || !liveTextStatus.hasText}
+                        onPress={() => handleSend({ queueHandoffAfterTurnId })}
+                    />
+                </View>
+            ) : null}
             {renderActionRows()}
         </View>
     );

@@ -30,6 +30,23 @@ const { AgentInput } = await import('./AgentInput');
 beforeEach(installAgentInputAssetLoader);
 
 describe('AgentInput armed continuation controls', () => {
+    it('queues instructions for the displayed source turn with the selected target, and keeps immediate Send available', async () => {
+        const onSend = vi.fn();
+        const props: React.ComponentProps<typeof AgentInput> = {
+            value: 'Review the draft', placeholder: '', onChangeText: () => {}, onSend,
+            agentType: 'claude', sessionId: 'session-1',
+            armedContinuationTarget: {agentId: 'codex', label: 'Codex'},
+            autocompleteKinds: [], autocompleteSuggestions: async () => [],
+        };
+        const screen = await renderScreen(<AgentInput {...props} />);
+        expect(screen.findByTestId('agent-input-queue-handoff')).toBeNull();
+        await screen.update(<AgentInput {...props} queueHandoffAfterTurnId="turn-3" />);
+        await screen.pressByTestId('agent-input-queue-handoff');
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ queueHandoffAfterTurnId: 'turn-3' }));
+        expect(screen.findByTestId('session-composer-send')).not.toBeNull();
+        await screen.unmount();
+    });
+
     it('keeps Session safety intent but removes the source runtime mode editor while another Agent is armed', async () => {
         const onModeChange = vi.fn();
         const onPermissionChange = vi.fn();

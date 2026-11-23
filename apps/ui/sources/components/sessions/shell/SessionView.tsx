@@ -3,7 +3,7 @@ import { sendPendingMessageWithIntent } from '@/components/sessions/pending/pend
 import { resolveNewSessionCapabilityProbeContext } from '@/components/sessions/new/modules/newSessionCapabilityProbeContext';
 import type { SessionModelDiscoveryContext } from '@/components/sessions/agentInput/components/AgentInputModelDiscoveryDetail';
 import Color from 'color';
-import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
+import { selectCanonicalOutboundHandoffForLocalId } from '@/sync/domains/session/input/selectCanonicalOutboundHandoffForLocalId';
 
 import { AgentContentView } from '@/components/sessions/transcript/AgentContentView';
 import { AgentInput, type AgentInputSendOptions } from '@/components/sessions/agentInput';
@@ -221,6 +221,7 @@ import { confirmNonSteerableSend } from '@/components/sessions/agentInput/confir
 import { canApplySteerConfigInFlight, resolveSessionComposerSendActions, decideSessionMessageDelivery, type MessageSendMode } from '@/sync/domains/session/control/submitMode';
 import {
     buildArmedAgentContinuationTransitionInput,
+    buildArmedAgentTransitionRequest,
     continueSessionWithArmedAgent,
     reconcileArmedAgentContinuationDisposition,
     type ArmedAgentContinuationCanonicalFacts,
@@ -326,6 +327,9 @@ import { resolveSessionResumeMachineTarget } from './sessionResumeMachineTarget'
 import { useDirectSessionTakeover } from '@/components/sessions/model/useDirectSessionTakeover';
 import { useDirectSessionRuntime } from '@/components/sessions/model/useDirectSessionRuntime';
 import { SessionDirectSessionRuntimeProvider } from '@/components/sessions/model/useSessionDirectSessionRuntime';
+import { queuedHandoffInstructionsKey, updateQueuedHandoffInstructions } from '@/sync/domains/input/drafts/queuedHandoffInstructions';
+import { QueuedHandoffInstructionsRecovery } from './QueuedHandoffInstructionsRecovery';
+import { useSessionAgentTransitionQueue } from '@/hooks/session/useSessionAgentTransitionQueue';
 import { SessionWarningActionBanner } from './SessionWarningActionBanner';
 import { ComposerAuxiliaryFrame } from './view/ComposerAuxiliaryFrame';
 import {
@@ -377,47 +381,6 @@ import type { SessionParticipantTarget } from '@/sync/domains/session/participan
 import type { PendingMessage } from '@/sync/domains/state/storageTypes';
 import { resolvePendingActivationBanner } from '@/components/sessions/pending/resolvePendingActivationBanner';
 import type { StorageState } from '@/sync/store/types';
-
-/**
- * Where one submitted localId has got to, canonically — the single reader for
- * both questions the transition asks about it: whether it was admitted at all,
- * and whether anything has carried it yet.
- *
- * They are answered together because they come from the same two store slices,
- * and because a queued-input signal that cannot see `delivered` outlives the
- * message it describes: the armed outcome stays on screen for the life of the
- * Session, so a Session that answers and later idles out would otherwise be
- * reported as one whose message never went.
- */
-function selectCanonicalOutboundHandoffForLocalId(
-    state: StorageState,
-    sessionId: string,
-    localId: string | null,
-): ArmedAgentContinuationInputCustody {
-    if (!localId) return 'absent';
-
-    const sessionMessages = state.sessionMessages[sessionId];
-    const messagesById = sessionMessages?.messagesById ?? sessionMessages?.messagesMap;
-    // The transcript is checked FIRST: a materialized row is the stronger fact,
-    // and a pending row can briefly survive its own materialization.
-    const isDelivered = messagesById !== undefined && Object.values(messagesById).some((message) => (
-        message.kind === 'user-text'
-        && message.localId === localId
-        && !isRecoveredHistoryTranscriptObservationProvenance(message.transcriptObservationProvenance)
-    ));
-    if (isDelivered) return 'delivered';
-
-    const pending = state.sessionPending[sessionId];
-    // `discarded` still proves admission, but nothing is waiting on a runtime
-    // for it, so it does not count as queued.
-    const isQueued = (pending?.messages ?? []).some((message) => (
-        message.source === 'server_pending' && message.localId === localId
-    ));
-    if (isQueued) return 'queued';
-    return (pending?.discarded ?? []).some((message) => (
-        message.source === 'server_pending' && message.localId === localId
-    )) ? 'delivered' : 'absent';
-}
 
 /**
  * The same reader sampled once, for the imperative callers that ask at a single
@@ -3970,6 +3933,22 @@ function SessionViewLoaded({
             catalogEntry.targetKey === buildBackendTargetKey(selection.backendTarget ?? { kind: 'builtInAgent', agentId: selection.agentId })
         ))?.title ?? selection.agentId,
     }), [currentAgentLabel, sessionAgentCatalogEntries]);
+    const activeSourceTurnId = session.latestTurnStatus === 'in_progress' ? session.latestTurnId ?? null : null;
+    const handoffQueue = useSessionAgentTransitionQueue({
+        sessionId,
+        accountScopeKey: activeServerAccountScopeKey,
+        machine: agentContinuationMachine,
+        enabled: surfaceFocused && hasWriteAccess && agentSwitchingDecision?.state === 'enabled'
+            && agentContinuationSource.storageKind !== 'direct' && agentContinuationSource.machinePresence === 'online',
+        activeTurnId: activeSourceTurnId,
+    });
+    const queueState = handoffQueue.state;
+    const handoffInstructionsKey = activeServerAccountScope ? queuedHandoffInstructionsKey(activeServerAccountScopeKey, sessionId) : null;
+    const nextHandoff = queueState && 'target' in queueState ? queueState : null;
+    const canScheduleHandoff = handoffInstructionsKey !== null && queueState !== null && !['rejected', 'queued', 'dispatching'].includes(queueState.status);
+    const nextHandoffAgent = nextHandoff ? buildArmedContinuationLabels(nextHandoff.target).targetAgentLabel : '';
+    const nextHandoffLabel = nextHandoff?.target.modelId ? `${nextHandoffAgent} · ${nextHandoff.target.modelId}` : nextHandoffAgent;
+    const [dismissedHandoff, setDismissedHandoff] = React.useState<string | null>(null);
     const restoredArmedContinuationOutcomeKeyRef = React.useRef<string | null>(null);
     React.useLayoutEffect(() => {
         // `recordArmedContinuationSubmission` persists before the RPC leaves the
@@ -5319,6 +5298,9 @@ function SessionViewLoaded({
     });
     const canChooseComposerSendActions = !pendingMessageEdit && !recipientState.recipient && !armedContinuationTarget
         && persistedVoiceComposerRouting?.kind !== 'adapter_text';
+    const queueHandoffAfterTurnId = canScheduleHandoff && !pendingMessageEdit && !recipientState.recipient
+        && persistedVoiceComposerRouting?.kind !== 'adapter_text' && !inSessionAgentPicker.armedContinuationSubmission
+        ? activeSourceTurnId : null;
     const handleAgentInputSend = useStableAgentInputOnSend((sendOptions) => {
         if (!hasWriteAccess) {
             Modal.alert(t('common.error'), t('session.sharing.noEditPermission'));
@@ -5326,6 +5308,11 @@ function SessionViewLoaded({
         }
 
         const composerMessage = sendOptions?.inputTextOverride ?? composerTextStore.getPrompt();
+        if (sendOptions?.queueHandoffAfterTurnId && (!composerMessage.trim() || !inSessionAgentPicker.armedContinuation
+            || pendingMessageEditRef.current || sendOptions.queueHandoffAfterTurnId !== queueHandoffAfterTurnId)) {
+            Modal.alert(t('common.error'), t('session.agentContinuation.handoffTurnChanged'));
+            return;
+        }
         if (sendOptions?.sendNextQueued) {
             const message = pendingMessages[0];
             if (!canChooseComposerSendActions || composerMessage.trim() || attachmentDrafts.length > 0 || hasIncludedReviewCommentDrafts
@@ -5386,6 +5373,10 @@ function SessionViewLoaded({
                 pendingTransitionOutcome,
             });
             const sessionAgentSendDestination = resolveSendDestination('sessionAgent');
+            if (sendIntent?.queueHandoffAfterTurnId && sessionAgentSendDestination.kind !== 'armedAgentContinuation') {
+                Modal.alert(t('common.error'), t('session.agentContinuation.handoffTurnChanged'));
+                return;
+            }
             const providerNonSteerablePayloadReason = sessionAgentSendDestination.kind === 'sessionAgent'
                 ? getSessionComposerNonSteerablePayloadReasonFromUiState({
                 agentId: liveComposerState.agentId,
@@ -5649,6 +5640,46 @@ function SessionViewLoaded({
                     }
                     : transitionSubmission;
                 const isScopeCurrent = () => areServerAccountScopesEqual(activeServerAccountScope, getActiveServerAccountScope());
+                if (sendIntent?.queueHandoffAfterTurnId) {
+                    if (!isScopeCurrent() || existingSubmission || !handoffInstructionsKey) return;
+                    try {
+                        const transition = buildArmedAgentTransitionRequest(transitionSubmission);
+                        // The worker owns a volatile queue. Preserve the exact wire instructions
+                        // on this client before dispatch and before spending the visible draft.
+                        await updateQueuedHandoffInstructions(handoffInstructionsKey, destination.localId, transition.input.text);
+                        if (!isScopeCurrent()) return;
+                        let result;
+                        try {
+                            result = await handoffQueue.request({ action: 'schedule', sessionId, turnId: sendIntent.queueHandoffAfterTurnId,
+                                transition });
+                        } catch {
+                            // The daemon may already own the submission even when its reply was lost.
+                            result = await handoffQueue.refresh();
+                        }
+                        if (!isScopeCurrent()) return;
+                        if ('localId' in result && result.localId === destination.localId
+                            && ['queued', 'dispatching', 'completed'].includes(result.status)) {
+                            outboundHandoffLocalId = destination.localId;
+                            onAdmitted();
+                            inSessionAgentPicker.clearArmedContinuation(destination.localId);
+                            return;
+                        }
+                        if (result.status === 'rejected') {
+                            // Explicit refusal leaves the original draft in the composer.
+                            await updateQueuedHandoffInstructions(handoffInstructionsKey, destination.localId, null);
+                            void handoffQueue.refresh().catch(() => {});
+                        }
+                        const message = result.status === 'rejected' && result.reason === 'already_queued'
+                            ? t('session.agentContinuation.handoffAlreadyQueued')
+                            : result.status === 'rejected' && result.reason === 'turn_changed'
+                                ? t('session.agentContinuation.handoffTurnChanged')
+                                : t('session.agentContinuation.handoffFailed', { agent: armedContinuationTargetLabel });
+                        Modal.alert(t('common.error'), message);
+                    } catch {
+                        if (isScopeCurrent()) Modal.alert(t('common.error'), t('session.agentContinuation.handoffFailed', { agent: armedContinuationTargetLabel }));
+                    }
+                    return;
+                }
                 const { disposition, result } = await continueSessionWithArmedAgent(submissionForDispatch, {
                     isCurrent: isScopeCurrent,
                     onBeforeTransitionDispatch: () => inSessionAgentPicker.recordArmedContinuationSubmission({
@@ -6117,6 +6148,10 @@ function SessionViewLoaded({
             })(), { tag: 'SessionView.sendMessage.submitSessionUserMessage' });
         };
 
+        if (sendOptions?.queueHandoffAfterTurnId) {
+            void sendComposerText(composerMessage, composerMessage, sendOptions);
+            return;
+        }
         const promptInvocationsV1 = storage.getState().settings.promptInvocationsV1;
         const resolved = resolveSessionComposerSend({
             input: composerMessage,
@@ -6299,6 +6334,37 @@ function SessionViewLoaded({
                     />
                 </ComposerAuxiliaryFrame>
             ) : null}
+            {handoffInstructionsKey && <QueuedHandoffInstructionsRecovery key={handoffInstructionsKey} sessionId={sessionId}
+                recordKey={handoffInstructionsKey} queue={queueState} />}
+            {nextHandoff && (nextHandoff.status === 'queued' || nextHandoff.status === 'dispatching'
+                || (nextHandoff.status === 'failed' && dismissedHandoff !== nextHandoff.localId)) ? (
+                <ComposerAuxiliaryFrame>
+                    <SessionWarningActionBanner
+                        testID="session-queued-handoff"
+                        tone={nextHandoff.status === 'failed' ? 'warning' : 'neutral'}
+                        title={nextHandoff.status === 'failed' ? t('session.agentContinuation.handoffFailed', { agent: nextHandoffLabel })
+                            : nextHandoff.status === 'queued' ? t('session.agentContinuation.handoffQueued', { agent: nextHandoffLabel })
+                                : t('session.agentContinuation.handoffDispatching', { agent: nextHandoffLabel })}
+                        {...(nextHandoff.status === 'queued' ? {
+                            actionTestID: 'session-queued-handoff-cancel',
+                            actionLabel: t('common.cancel'),
+                            actionAccessibilityLabel: t('common.cancel'),
+                            onActionPress: async () => {
+                                try {
+                                    const result = await handoffQueue.request({ action: 'cancel', sessionId, localId: nextHandoff.localId });
+                                    if (result.status === 'rejected') await handoffQueue.refresh();
+                                } catch {
+                                    Modal.alert(t('common.error'), t('errors.operationFailed'));
+                                }
+                            },
+                        } : nextHandoff.status === 'failed' ? {
+                            actionLabel: t('common.close'),
+                            actionAccessibilityLabel: t('common.close'),
+                            onActionPress: () => setDismissedHandoff(nextHandoff.localId),
+                        } : {})}
+                    />
+                </ComposerAuxiliaryFrame>
+            ) : null}
             {armedContinuationNotice && !agentTransitionOutcomeBanner.collapsed ? (
                 <ComposerAuxiliaryFrame>
                     <SessionWarningActionBanner
@@ -6391,7 +6457,8 @@ function SessionViewLoaded({
             <SessionAgentInputRuntimeStatusBoundary
                 session={session}
                 sessionLatestUsage={session.latestUsage}
-                placeholder={isReadOnly ? t('session.sharing.viewOnlyMode') : t('session.inputPlaceholder')}
+                placeholder={isReadOnly ? t('session.sharing.viewOnlyMode') : armedContinuationTarget && queueHandoffAfterTurnId
+                    ? t('session.agentContinuation.handoffInstructions') : t('session.inputPlaceholder')}
                 composerTextStore={composerTextStore}
                 onChangeText={setDraftValue}
                 sessionId={sessionId}
@@ -6400,6 +6467,7 @@ function SessionViewLoaded({
                 inputComposerRestoreTransientStateRef={inputComposerRestoreTransientStateRef}
                 agentType={liveComposerState.agentId}
                 armedContinuationTarget={armedContinuationTarget}
+                queueHandoffAfterTurnId={queueHandoffAfterTurnId}
                 composeAgentPickerOptions={inSessionAgentPicker.composeAgentPickerOptions}
                 onAgentPickerIntent={inSessionAgentPicker.onAgentPickerIntent}
                 onAgentPickerVisibilityChange={inSessionAgentPicker.onAgentPickerVisibilityChange}

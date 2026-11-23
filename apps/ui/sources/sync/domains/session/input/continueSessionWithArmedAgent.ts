@@ -3,6 +3,7 @@ import {
     type BackendTargetRefV1,
     type ComposerAgentContinuationIntentV1,
     type SessionAgentTransitionInputV1,
+    type SessionAgentTransitionRequestV1,
     type SessionAgentTransitionRejectedCodeV1,
     type SessionAgentTransitionResultV1,
 } from '@happier-dev/protocol';
@@ -490,6 +491,17 @@ export type ArmedAgentContinuationOutcome = Readonly<{
     disposition: ArmedAgentContinuationDisposition;
 }>;
 
+export function buildArmedAgentTransitionRequest(submission: ArmedAgentContinuationSubmission): SessionAgentTransitionRequestV1 {
+    return {
+        v: 1,
+        sessionId: submission.sessionId,
+        expectedCurrentAgentId: submission.intent.sourceAgentId,
+        ...(submission.intent.sourceBackendTarget ? { expectedCurrentBackendTarget: submission.intent.sourceBackendTarget } : {}),
+        selection: submission.intent.selection,
+        input: buildArmedAgentContinuationTransitionInput(submission),
+    };
+}
+
 export async function continueSessionWithArmedAgent(
     submission: ArmedAgentContinuationSubmission,
     options?: Readonly<{ isCurrent?: () => boolean; onBeforeTransitionDispatch?: () => boolean }>,
@@ -532,14 +544,7 @@ export async function continueSessionWithArmedAgent(
     const result = await runSessionAgentTransitionOnMachine({
         machineId: submission.machineId,
         serverId: submission.serverId,
-        request: {
-            v: 1,
-            sessionId: submission.sessionId,
-            expectedCurrentAgentId: submission.intent.sourceAgentId,
-            ...(submission.intent.sourceBackendTarget ? { expectedCurrentBackendTarget: submission.intent.sourceBackendTarget } : {}),
-            selection: submission.intent.selection,
-            input: buildArmedAgentContinuationTransitionInput(submission),
-        },
+        request: buildArmedAgentTransitionRequest(submission),
     });
     return {
         result,

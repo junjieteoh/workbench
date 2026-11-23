@@ -1,5 +1,9 @@
 import {
     SessionAgentTransitionRequestV1Schema,
+    SessionAgentTransitionQueueRequestV1Schema,
+    SessionAgentTransitionQueueResultV1Schema,
+    type SessionAgentTransitionQueueRequestV1,
+    type SessionAgentTransitionQueueResultV1,
     SessionAgentTransitionResultV1Schema,
     beginSessionAgentTransitionEffects,
     rejectUndispatchedSessionAgentTransition,
@@ -43,6 +47,38 @@ export type RunSessionAgentTransitionInput = Readonly<{
     request: SessionAgentTransitionRequestV1;
 }>;
 
+function callSessionAgentTransition(
+    input: Pick<RunSessionAgentTransitionInput, 'machineId' | 'serverId'>,
+    payload: SessionAgentTransitionRequestV1 | SessionAgentTransitionQueueRequestV1,
+): Promise<unknown> {
+    return machineRpcWithServerScope({
+        machineId: input.machineId,
+        serverId: input.serverId,
+        method: RPC_METHODS.SESSION_AGENT_TRANSITION,
+        payload,
+        authorization: { kind: SOCKET_RPC_AUTHORIZATION_CONTEXT_KINDS.SESSION_WRITE, sessionId: payload.sessionId },
+    });
+}
+
+export async function sessionAgentTransitionQueueOnMachine(
+    input: Pick<RunSessionAgentTransitionInput, 'machineId' | 'serverId'> & { request: SessionAgentTransitionQueueRequestV1 },
+): Promise<SessionAgentTransitionQueueResultV1> {
+    const payload = SessionAgentTransitionQueueRequestV1Schema.parse(input.request);
+    try {
+        const raw = await callSessionAgentTransition(input, payload);
+        const queue = SessionAgentTransitionQueueResultV1Schema.safeParse(raw);
+        if (queue.success) return queue.data;
+        const olderWorker = SessionAgentTransitionResultV1Schema.safeParse(raw);
+        if (olderWorker.success && olderWorker.data.type === 'rejected' && olderWorker.data.code === 'unsupported_operation') {
+            return { status: 'rejected', reason: 'unsupported' };
+        }
+        throw new Error('Invalid response to queued agent transition');
+    } catch (error) {
+        if (readRpcErrorCode(error) === RPC_ERROR_CODES.METHOD_NOT_AVAILABLE) return { status: 'rejected', reason: 'unsupported' };
+        throw error;
+    }
+}
+
 export async function runSessionAgentTransitionOnMachine(
     input: RunSessionAgentTransitionInput,
 ): Promise<SessionAgentTransitionResultV1> {
@@ -56,23 +92,7 @@ export async function runSessionAgentTransitionOnMachine(
     const effects = beginSessionAgentTransitionEffects({ localId });
     let raw: unknown;
     try {
-        raw = await machineRpcWithServerScope<unknown, typeof payload>({
-            machineId: input.machineId,
-            serverId: input.serverId,
-            method: RPC_METHODS.SESSION_AGENT_TRANSITION,
-            payload,
-            // `session.agentTransition` is a canonical Session-write, so it
-            // carries the same edit proof every sibling Session-write machine
-            // RPC carries. The server rejects a classified call with no
-            // envelope before it resolves a target, and the daemon rejects one
-            // whose envelope names a Session other than the decrypted payload's
-            // — so the envelope has to be built from the PARSED payload, not
-            // the caller's unnormalized request.
-            authorization: {
-                kind: SOCKET_RPC_AUTHORIZATION_CONTEXT_KINDS.SESSION_WRITE,
-                sessionId: payload.sessionId,
-            },
-        });
+        raw = await callSessionAgentTransition(input, payload);
     } catch (error) {
         return readRpcErrorCode(error) === RPC_ERROR_CODES.METHOD_NOT_AVAILABLE
             ? rejectUndispatchedSessionAgentTransition('unsupported_operation')

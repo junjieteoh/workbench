@@ -70,15 +70,25 @@ for a later prompt. When that first intent already matches the session policy,
 an older compatible CLI may apply the latest session policy instead, including
 an immediate permission change made while the current Agent is stopping.
 
+## Choose who goes next
+
+In Workbench, you can choose the next Agent while the current one is working. Open the Agent picker, select the Agent and model, and type what you want it to do. Choose **Queue handoff after this turn**. For example, ask the next Agent to check the draft against the original brief.
+
+Once the current turn succeeds, the worker passes your instructions and a text summary of the recent conversation to the next Agent in the same session. One handoff can wait at a time. You can close the browser while you wait, or cancel the handoff before it starts.
+
+A failed or cancelled turn stops the handoff. Restarting the worker also clears it. If the instructions were never delivered, open the session on the device where you queued them and use **Copy** to recover the text. Check the transcript before submitting it again.
+
+If your worker does not offer queuing, you can use **Continue with** after the current Agent finishes.
+
 ## When it is available
 
-The switch works only for a **hosted** session whose current Agent Happier can name and is **strictly idle**. The Session's recorded machine is not a switch gate: the stop and activation owners determine whether this CLI can perform their work. A cold inactive Session counts as stopped once its canonical Session state confirms that fact.
+An immediate switch works only for a **hosted** session whose current Agent Happier can name and is **strictly idle**. The Session's recorded machine is not a switch gate: the stop and activation owners determine whether this CLI can perform their work. A cold inactive Session counts as stopped once its canonical Session state confirms that fact.
 
 It is not available when:
 
 - **The session's transcript is not hosted by Happier.** A [direct session](/sessions/continuing-a-session), where the Agent owns its own store, has no Happier conversation for another Agent to continue.
 - **You have read-only access to the session.** The picker says so once for the session rather than once per Agent.
-- **The current Agent is still working.** Send is refused with *"`{Agent}` is still working. Nothing was sent — try again once it finishes."* Wait for the turn to finish and send again.
+- **The current Agent is still working.** Send is refused with *"`{Agent}` is still working. Nothing was sent — try again once it finishes."* Wait for the turn to finish and send again, or use **Queue handoff after this turn** on a worker that supports it.
 - **No reachable CLI can perform the operation, or its CLI is older than the feature.** Happier distinguishes the two where it can, and says "update or reconnect" when it genuinely cannot tell.
 - **The configured ACP target is unavailable.** Its exact saved configuration must still exist, and the current CLI must support configured ACP continuation. Your draft and armed choice remain available when the switch is refused.
 
@@ -139,9 +149,7 @@ Happier is explicit about whether your message was sent and whether the switch h
 - **The session switched but the target did not start.** Your exact message is already queued and will be delivered when the Session resumes; do not send it again. The existing **Resume session** action is offered only when the Session is already the target and inactive.
 - **Happier could not confirm what happened.** While this is unresolved, the composer performs one automatic reconciliation and refuses new sends rather than risk sending your message twice.
 
-There is no *Check status*, *Resume source*, or *Resume target* control, recovery panel, polling, or
-second recovery state machine. Apart from **Resume session** for an inactive target, the composer
-banner offers no recovery action.
+For an immediate switch, Happier checks the outcome automatically. Use **Resume session** if the target is inactive.
 
 Retrying the same armed switch reuses the same identity, so a retry admits one message rather than a duplicate.
 
