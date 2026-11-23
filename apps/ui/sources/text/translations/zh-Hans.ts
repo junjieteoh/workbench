@@ -5253,6 +5253,11 @@ export const zhHans: TranslationStructure = {
   sessionHandoff: sessionHandoffTranslationExtensions['zh-Hans'],
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: '主智能体尚未在此对话中回复，暂时没有可供评审的内容。',
+      unavailable: '此会话目前无法开始评审。',
+      instructions: '请写明希望评审者检查什么。',
+    },
     inputPlaceholder: "输入消息...",
     transcriptNavigation: {
       title: "导航",
@@ -6782,6 +6787,16 @@ export const zhHans: TranslationStructure = {
       chipPicker: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。已选择。`,
       },
+    agentReview: {
+        cachedModels: "已保存的模型列表 · 无法实时刷新",
+        catalogModels: "提供商目录 · 无法实时查询",
+        group: "审阅代理",
+        choose: "请代理审阅…",
+        none: "无匹配项",
+        unavailable: "无法从这台机器加载选项",
+        review: "审阅",
+        remove: "移除审阅者",
+    },
     suggestionGroups: {
       files: '文件',
       plugins: '插件',

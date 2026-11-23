@@ -5783,6 +5783,11 @@ export const it: TranslationStructure = {
   sessionHandoff: sessionHandoffTranslationExtensions.it,
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: 'L’agente principale non ha ancora risposto in questa conversazione. Non c’è ancora una risposta da rivedere.',
+      unavailable: 'Al momento questa sessione non può avviare la revisione.',
+      instructions: 'Scrivi cosa vuoi che venga verificato.',
+    },
     inputPlaceholder: "Scrivi un messaggio ...",
     transcriptNavigation: {
       title: "Naviga",
@@ -7337,6 +7342,16 @@ export const it: TranslationStructure = {
       chipPicker: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Selezionato.`,
       },
+    agentReview: {
+        cachedModels: "Elenco salvato · aggiornamento non disponibile",
+        catalogModels: "Catalogo del fornitore · ricerca in tempo reale non disponibile",
+        group: "Agenti di revisione",
+        choose: "Chiedi una revisione a un agente…",
+        none: "Nessun risultato",
+        unavailable: "Impossibile caricare le opzioni da questo computer",
+        review: "Revisione",
+        remove: "Rimuovi revisore",
+    },
     suggestionGroups: {
       files: 'File',
       plugins: 'Plugin',

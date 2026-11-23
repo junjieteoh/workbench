@@ -41,6 +41,17 @@ function createDeps(overrides: Partial<ActionExecutorDeps> = {}): ActionExecutor
 }
 
 describe('createActionExecutor model/effort run-option parity', () => {
+  it.each([true, false])('forwards an explicit delegate completion notification choice (%s) to its own target', async (notifyParentOnCompletion) => {
+    const executionRunStart = vi.fn(async () => ({ runId: 'r', callId: 'c', sidechainId: 'c' }));
+    const executor = createActionExecutor(createDeps({ executionRunStart }));
+    await executor.execute('subagents.delegate.start', {
+      sessionId: 's', backendTargetKeys: ['agent:gemini'], instructions: 'Review this memo.',
+      notifyParentOnCompletion,
+    }, { defaultSessionId: 's', serverId: 'private', surface: 'ui_button', actionRequestId: 'mention-1' });
+    expect(executionRunStart).toHaveBeenCalledWith('s', expect.objectContaining({
+      notifyParentOnCompletion, startRequestId: 'mention-1:agent:gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' },
+    }), { serverId: 'private' });
+  });
   it('threads modelId + configOptions(reasoning_effort) into subagents.delegate.start as canonical overrides', async () => {
     const executionRunStart = vi.fn(async () => ({ runId: 'run_1', callId: 'call_1', sidechainId: 'call_1' }));
     const executor = createActionExecutor(createDeps({ executionRunStart }));

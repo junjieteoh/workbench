@@ -5086,6 +5086,11 @@ export const de: TranslationStructure = {
     },
 
     session: {
+        agentReviewErrors: {
+            noLeadDraft: 'In dieser Unterhaltung gibt es noch keine Antwort des leitenden Agenten zur Prüfung.',
+            unavailable: 'Diese Sitzung kann die Prüfung gerade nicht starten.',
+            instructions: 'Schreibe, was geprüft werden soll.',
+        },
         inputPlaceholder: 'Woran willst du arbeiten?',
         transcriptNavigation: {
             title: 'Navigieren',
@@ -6615,6 +6620,16 @@ export const de: TranslationStructure = {
         },
         // Section headers for the composer suggestion picker. One per suggestion
         // kind; the registry maps kind -> key, mirroring markdown.slash.groups.*.
+        agentReview: {
+            cachedModels: "Gespeicherte Modellliste · Aktualisierung nicht verfügbar",
+            catalogModels: "Anbieterkatalog · Live-Abfrage nicht verfügbar",
+            group: "Review-Agenten",
+            choose: "Einen Agenten um eine Prüfung bitten…",
+            none: "Keine Treffer",
+            unavailable: "Optionen konnten nicht vom Gerät geladen werden",
+            review: "Prüfung",
+            remove: "Prüfer entfernen",
+        },
         suggestionGroups: {
             files: 'Dateien',
             plugins: 'Plugins',

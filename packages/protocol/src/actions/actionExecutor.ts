@@ -1755,6 +1755,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
         const {
           waitForCompletion: _waitForCompletion,
           waitTimeoutSeconds: _waitTimeoutSeconds,
+          notifyParentOnCompletion,
           ...intentInput
         } = parsed.data as any;
 
@@ -1768,6 +1769,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
               sessionId,
               {
                 intent,
+                ...(typeof notifyParentOnCompletion === 'boolean' ? { notifyParentOnCompletion } : {}),
                 ...(ctx.actionRequestId
                   ? { startRequestId: `${ctx.actionRequestId}:${backendTargetKey}` }
                   : {}),

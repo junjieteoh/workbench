@@ -61,6 +61,8 @@ export type { ComposerSuggestionKindId } from './composerSuggestionGrammar';
 /** Which session catalog snapshot a kind reads, if any. */
 export type ComposerSuggestionCatalogKey = 'vendorPlugins' | 'skills' | 'commands';
 
+import { resolveAgentReviewSuggestions, type AgentReviewComposerBinding } from '@/components/sessions/agentInput/agentReviewComposer';
+
 export type ComposerSuggestionResolveContext = Readonly<{
     /**
      * The session whose *published* state this composer reads: its command list, its plugin
@@ -95,6 +97,8 @@ export type ComposerSuggestionResolveContext = Readonly<{
     scopedQuery: string;
     /** The scope alias matched in the token, or null. */
     scope: string | null;
+    agentReview?: AgentReviewComposerBinding;
+    signal?: AbortSignal;
     catalogs: ComposerSuggestionCatalogs;
     limit: number;
 }>;
@@ -345,6 +349,12 @@ const COMPOSER_SUGGESTION_KIND_DEFINITIONS = {
         limit: 12,
         sectionTitleKey: 'agentInput.suggestionGroups.files',
         resolve: resolveFileSuggestions,
+    },
+    agentReview: {
+        id: 'agentReview', scopes: ['agent'], limit: 8,
+        sectionTitleKey: 'agentInput.agentReview.group',
+        icon: () => React.createElement(Icon, { name: 'robot', size: 16 }),
+        resolve: (context) => resolveAgentReviewSuggestions({ ...context, binding: context.agentReview }),
     },
     vendorPlugin: {
         id: 'vendorPlugin',

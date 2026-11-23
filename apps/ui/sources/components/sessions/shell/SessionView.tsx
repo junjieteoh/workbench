@@ -6,6 +6,9 @@ import Color from 'color';
 import { selectCanonicalOutboundHandoffForLocalId } from '@/sync/domains/session/input/selectCanonicalOutboundHandoffForLocalId';
 
 import { AgentContentView } from '@/components/sessions/transcript/AgentContentView';
+import { useSessionAgentReviewComposer } from '@/components/sessions/agentInput/useSessionAgentReviewComposer';
+import { useSessionAgentReviewDraft } from '@/components/sessions/agentInput/useSessionAgentReviewDraft';
+import { getReviewAssignment } from '@/components/sessions/agentInput/sessionAgentReviewDraft';
 import { AgentInput, type AgentInputSendOptions } from '@/components/sessions/agentInput';
 import { COMPOSER_CONTENT_HORIZONTAL_INSET } from '@/components/sessions/agentInput/composerContentInset';
 import {
@@ -468,6 +471,7 @@ import {
 
 const sessionSubmitPort = createSyncBackedSubmitPort(sync);
 const SESSION_COMPOSER_SUGGESTION_KINDS: readonly ComposerSuggestionKindId[] = [
+    'agentReview',
     'file',
     'vendorPlugin',
     // A reference is same-server only (D-8), and this host answers that from its own session.
@@ -5270,6 +5274,23 @@ function SessionViewLoaded({
     const handleAgentInputAbort = React.useCallback(() => {
         return sessionAbort(sessionId);
     }, [sessionId]);
+    const reviewDraft = useSessionAgentReviewDraft(draftScope, sessionId);
+    const canAddressReviewer = Boolean(draftScope && executionRunsEnabled && hasWriteAccess && isSessionActive
+        && shouldShowInput && isMachineReachable && !pendingMessageEdit && !recipientState.recipient
+        && !armedContinuationTarget && persistedVoiceComposerRouting?.kind !== 'adapter_text');
+    const agentReviewComposer = useSessionAgentReviewComposer({
+        enabled: canAddressReviewer,
+        entries: sessionAgentCatalogEntries,
+        machineId: controlMachineTarget?.machineId ?? machineId,
+        serverId: capabilityServerId,
+        cwd: liveAuthoringContext.snapshot.directory,
+        profileId: liveComposerState.profileId,
+        settings,
+        metadata: session.metadata,
+        selection: reviewDraft.mention?.selection ?? null,
+        onSelectionChange: reviewDraft.select,
+    });
+    const sendingReview = React.useRef(false);
     const handleAutocompleteSuggestions = React.useCallback(
         // Resolved per query, not per render: the machine target is imperative store state,
         // and a session that becomes reachable mid-composition must not need a rerender to
@@ -5277,8 +5298,9 @@ function SessionViewLoaded({
         (query: string, signal: AbortSignal) => resolveSessionComposerSuggestions(sessionId, query, {
             kinds: SESSION_COMPOSER_SUGGESTION_KINDS,
             signal,
+            agentReview: agentReviewComposer,
         }),
-        [sessionId],
+        [agentReviewComposer, sessionId],
     );
     const composerProfileId = liveComposerState.profileId;
     const handleProfileClick = React.useCallback(() => {
@@ -5296,9 +5318,9 @@ function SessionViewLoaded({
         busySteerSendPolicy: settings.sessionBusySteerSendPolicy,
         session: sessionRuntimeStatusSource,
     });
-    const canChooseComposerSendActions = !pendingMessageEdit && !recipientState.recipient && !armedContinuationTarget
+    const canChooseComposerSendActions = !reviewDraft.mention && !pendingMessageEdit && !recipientState.recipient && !armedContinuationTarget
         && persistedVoiceComposerRouting?.kind !== 'adapter_text';
-    const queueHandoffAfterTurnId = canScheduleHandoff && !pendingMessageEdit && !recipientState.recipient
+    const queueHandoffAfterTurnId = !reviewDraft.mention && canScheduleHandoff && !pendingMessageEdit && !recipientState.recipient
         && persistedVoiceComposerRouting?.kind !== 'adapter_text' && !inSessionAgentPicker.armedContinuationSubmission
         ? activeSourceTurnId : null;
     const handleAgentInputSend = useStableAgentInputOnSend((sendOptions) => {
@@ -5308,6 +5330,48 @@ function SessionViewLoaded({
         }
 
         const composerMessage = sendOptions?.inputTextOverride ?? composerTextStore.getPrompt();
+        if (reviewDraft.mention || sendOptions?.agentReviewSelection) {
+            const address = reviewDraft.mention;
+            if (sendingReview.current) return;
+            const selected = sendOptions?.agentReviewSelection;
+            if (!address || !canAddressReviewer || !reviewDraft.isCurrent(address)
+                || (selected && (selected.modelId !== address.selection.modelId
+                    || buildBackendTargetKey(selected.target.backendTarget) !== buildBackendTargetKey(address.selection.target.backendTarget)))) {
+                Modal.alert(t('common.error'), t('session.agentReviewErrors.unavailable'));
+                return;
+            }
+            if (attachmentDrafts.length || hasIncludedReviewCommentDrafts) {
+                Modal.alert(t('common.error'), t('session.participants.unsupportedAttachmentsOrReviewComments'));
+                return;
+            }
+            const instructions = getReviewAssignment(composerMessage, address.selection.target);
+            if (!instructions) {
+                Modal.alert(t('common.error'), t('session.agentReviewErrors.instructions'));
+                return;
+            }
+            const snapshot = captureDraftForOutboundHandoff?.() ?? { sessionId, text: composerMessage };
+            sendingReview.current = true;
+            setIsComposerSendPending(true);
+            fireAndForget((async () => {
+                try {
+                    const result = await reviewDraft.start(address, instructions, capabilityServerId);
+                    if (!result.ok) {
+                        Modal.alert(t('common.error'), result.error);
+                        return;
+                    }
+                    if (reviewDraft.isCurrent(address) && clearDraftForSessionIfCurrentValueMatches(snapshot)) {
+                        reviewDraft.select(null);
+                        inputComposerClearTransientStateRef.current();
+                    }
+                } catch (error) {
+                    Modal.alert(t('common.error'), error instanceof Error ? error.message : t('errors.failedToSendMessage'));
+                } finally {
+                    sendingReview.current = false;
+                    setIsComposerSendPending(false);
+                }
+            })(), { tag: 'SessionView.startAgentReview' });
+            return;
+        }
         if (sendOptions?.queueHandoffAfterTurnId && (!composerMessage.trim() || !inSessionAgentPicker.armedContinuation
             || pendingMessageEditRef.current || sendOptions.queueHandoffAfterTurnId !== queueHandoffAfterTurnId)) {
             Modal.alert(t('common.error'), t('session.agentContinuation.handoffTurnChanged'));
@@ -6468,6 +6532,7 @@ function SessionViewLoaded({
                 agentType={liveComposerState.agentId}
                 armedContinuationTarget={armedContinuationTarget}
                 queueHandoffAfterTurnId={queueHandoffAfterTurnId}
+                agentReview={agentReviewComposer}
                 composeAgentPickerOptions={inSessionAgentPicker.composeAgentPickerOptions}
                 onAgentPickerIntent={inSessionAgentPicker.onAgentPickerIntent}
                 onAgentPickerVisibilityChange={inSessionAgentPicker.onAgentPickerVisibilityChange}

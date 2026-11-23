@@ -5449,6 +5449,11 @@ export const pl: TranslationStructure = {
   sessionHandoff: sessionHandoffTranslationExtensions.pl,
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: 'Główny agent nie udzielił jeszcze w tej rozmowie odpowiedzi do sprawdzenia.',
+      unavailable: 'W tej chwili nie można rozpocząć sprawdzania w tej sesji.',
+      instructions: 'Napisz, co ma sprawdzić recenzent.',
+    },
     inputPlaceholder: "Wpisz wiadomość...",
     transcriptNavigation: {
       title: "Nawiguj",
@@ -7005,6 +7010,16 @@ export const pl: TranslationStructure = {
       chipPicker: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Wybrano.`,
       },
+    agentReview: {
+        cachedModels: "Zapisana lista modeli · odświeżanie niedostępne",
+        catalogModels: "Katalog dostawcy · wyszukiwanie na żywo niedostępne",
+        group: "Agenci recenzujący",
+        choose: "Poproś agenta o recenzję…",
+        none: "Brak wyników",
+        unavailable: "Nie udało się wczytać opcji z tego urządzenia",
+        review: "Recenzja",
+        remove: "Usuń recenzenta",
+    },
     suggestionGroups: {
       files: 'Pliki',
       plugins: 'Wtyczki',

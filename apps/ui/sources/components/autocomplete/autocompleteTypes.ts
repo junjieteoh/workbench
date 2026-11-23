@@ -25,5 +25,7 @@ export type AutocompleteSuggestion = Readonly<{
      * it is deliberately NOT a second declaration of the same union.
      */
     structuredInput?: ComposerStructuredInputMentionPayload;
+    agentReview?: import('@/components/sessions/agentInput/agentReviewComposer').AgentReviewSuggestionAction;
+    agentReviewQuery?: string;
     promptInvocation?: PromptInvocationSuggestionMetadata;
 }>;

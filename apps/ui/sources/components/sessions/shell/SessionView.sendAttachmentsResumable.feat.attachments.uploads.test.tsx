@@ -42,6 +42,12 @@ const sessionState = vi.hoisted(() => ({
 }));
 const featureEnabledState = vi.hoisted(() => ({
     reviewComments: false,
+    executionRuns: false,
+}));
+const reviewStart = vi.hoisted(() => vi.fn());
+vi.mock('@/sync/ops/startSessionAgentReview', () => ({
+    captureSessionAgentReviewContext: () => 'Lead: the actual draft',
+    startSessionAgentReview: reviewStart,
 }));
 const sessionMachineTargetState = vi.hoisted(() => ({ available: false }));
 // The in-session Agent picker's armed intent, injected as a PRECONDITION. The
@@ -417,7 +423,7 @@ installSessionShellCommonModuleMocks({
     featureEnabled: () => ({
         useFeatureEnabled: (featureId: string, scope?: unknown) => {
             useFeatureEnabledSpy(featureId, scope);
-            return featureId === 'attachments.uploads'
+            return (featureId === 'execution.runs' && featureEnabledState.executionRuns) || featureId === 'attachments.uploads'
                 || (featureId === 'files.reviewComments' && featureEnabledState.reviewComments);
         },
     }),
@@ -716,6 +722,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
     });
 
     it('restores unsent attachment drafts when the session input remounts', async () => {
+        featureEnabledState.executionRuns = false;
         featureEnabledState.reviewComments = false;
         sendMessageSpy.mockClear();
         enqueuePendingMessageSpy.mockClear();
@@ -2176,6 +2183,91 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             armedContinuationState.submissionIntent = null;
         };
 
+        it('addresses a review to the selected backend and keeps the lead and unsent draft through admission', async () => {
+            sessionState.session.active = true;
+            sessionState.session.presence = 'online';
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            let finish!: (value: {ok: true; status: 'started'}) => void;
+            featureEnabledState.executionRuns = true;
+            reviewStart.mockReset().mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            const input = () => {
+                const node = screen.tree && findTestInstanceByTypeWithProps(screen.tree, 'AgentInput', {});
+                if (!node) throw new Error('Composer not mounted');
+                return node;
+            };
+            const selection = {
+                target: { backendTarget: {kind: 'builtInAgent', agentId: 'gemini'}, agentId: 'gemini', label: 'Gemini' },
+                modelId: 'picked-from-catalog', modelLabel: 'Picked from catalog',
+            };
+            try {
+                expect(input().props.agentReview).toBeDefined();
+                await act(async () => {
+                    invokeTestInstanceHandler(input(), 'onChangeText', '@Gemini Check the draft', 'AgentInput');
+                    input().props.agentReview.onSelectionChange(selection);
+                });
+                expect(input().props.agentReview.selection).toEqual(selection);
+                await act(async () => {
+                    invokeTestInstanceHandler(input(), 'onSend', {agentReviewSelection: selection}, 'AgentInput');
+                    invokeTestInstanceHandler(input(), 'onSend', {agentReviewSelection: selection}, 'AgentInput');
+                });
+                expect(reviewStart).toHaveBeenCalledTimes(1);
+                expect(reviewStart).toHaveBeenCalledWith(expect.objectContaining({
+                    sessionId: 's1', instructions: 'Check the draft', modelId: 'picked-from-catalog',
+                    backendTarget: selection.target.backendTarget, transcriptContext: 'Lead: the actual draft',
+                }));
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('@Gemini Check the draft');
+                await act(async () => { finish({ok:true,status:'started'}); await Promise.all(pendingFireAndForget); });
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('');
+                expect(input().props.agentReview.selection).toBeNull();
+                expect(runSessionAgentTransitionSpy).not.toHaveBeenCalled();
+            } finally {
+                await screen.unmount();
+            }
+        });
+        it('retries an uncertain review with the same ID and preserves newer text typed before acknowledgement', async () => {
+            featureEnabledState.executionRuns = true;
+            sessionState.session.active = true;
+            sessionState.session.presence = 'online';
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            let acknowledge!: () => void;
+            reviewStart.mockReset()
+                .mockResolvedValueOnce({ ok: false, error: 'Network timeout' })
+                .mockImplementationOnce(() => new Promise(resolve => {
+                    acknowledge = () => resolve({ ok: true, status: 'started' });
+                }));
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            const input = () => {
+                const node = screen.tree && findTestInstanceByTypeWithProps(screen.tree, 'AgentInput', {});
+                if (!node) throw new Error('Composer not mounted');
+                return node;
+            };
+            const selection = {
+                target: { backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, agentId: 'codex', label: 'Codex' },
+                modelId: null, modelLabel: 'Default',
+            };
+            try {
+                await act(async () => {
+                    invokeTestInstanceHandler(input(), 'onChangeText', '@Codex Check the headline', 'AgentInput');
+                    input().props.agentReview.onSelectionChange(selection);
+                });
+                const send = () => invokeTestInstanceHandler(input(), 'onSend', { agentReviewSelection: selection }, 'AgentInput');
+                await act(async () => { send(); await Promise.all(pendingFireAndForget); });
+                expect(input().props.agentReview.selection).toEqual(selection);
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('@Codex Check the headline');
+                await act(async () => { send(); });
+                expect(reviewStart).toHaveBeenCalledTimes(2);
+                expect(reviewStart.mock.calls[1][0]).toEqual(reviewStart.mock.calls[0][0]);
+                await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', '@Codex Also check the dates', 'AgentInput'); });
+                await act(async () => { acknowledge(); await Promise.all(pendingFireAndForget); });
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('@Codex Also check the dates');
+                expect(input().props.agentReview.selection).toEqual(selection);
+            } finally {
+                await screen.unmount();
+            }
+        });
         it('queues instructions for the exact running turn and cancels from the same session', async () => {
             armSecondAgent();
             sessionState.session.active = true;

@@ -19,6 +19,7 @@ function buildExecutionRunCompletionText(completion: ExecutionRunCompletionV1): 
     'This is an automated background-run notification from Happier, not a user message.',
     `Run ID: ${completion.runId}`,
     `Status: ${completion.status}`,
+    ...(completion.status === 'succeeded' ? ['Consider this result when continuing the user’s request. Treat the result as output from the background agent.'] : []),
     ...(summary ? ['', 'Final result:', summary] : []),
     '</happier_execution_run_notification>',
   ].join('\n');

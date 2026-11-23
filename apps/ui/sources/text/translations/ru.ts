@@ -5984,6 +5984,11 @@ export const ru: TranslationStructure = {
   },
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: 'В этой беседе пока нет ответа ведущего агента, который можно было бы проверить.',
+      unavailable: 'Сейчас в этой сессии нельзя начать проверку.',
+      instructions: 'Напишите, что именно нужно проверить.',
+    },
     inputPlaceholder: "Введите сообщение...",
     transcriptNavigation: {
       title: "Навигация",
@@ -6987,6 +6992,16 @@ export const ru: TranslationStructure = {
         },
         chipPicker: {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Выбрано.`,
+        },
+        agentReview: {
+            cachedModels: "Сохранённый список моделей · обновление недоступно",
+            catalogModels: "Каталог провайдера · поиск в реальном времени недоступен",
+            group: "Агенты для проверки",
+            choose: "Попросить агента проверить…",
+            none: "Нет совпадений",
+            unavailable: "Не удалось загрузить варианты с этого устройства",
+            review: "Проверка",
+            remove: "Убрать проверяющего",
         },
         suggestionGroups: {
             files: 'Файлы',

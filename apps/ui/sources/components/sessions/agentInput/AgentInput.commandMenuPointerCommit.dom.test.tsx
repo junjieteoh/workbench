@@ -138,7 +138,10 @@ vi.mock('@/sync/domains/state/storage', async (importOriginal) => {
 });
 
 /** `SessionView.tsx`'s eligible-kind subset for the session composer, verbatim. */
-const SESSION_COMPOSER_SUGGESTION_KINDS = ['file', 'vendorPlugin', 'skill', 'slashCommand'] as const;
+type ReviewBinding = import('./agentReviewComposer').AgentReviewComposerBinding;
+type ReviewSelection = import('./agentReviewComposer').ComposerAgentReviewSelection;
+type SubmitOptions = import('./agentInputSendOptions').AgentInputSendOptions;
+const SESSION_COMPOSER_SUGGESTION_KINDS = ['file', 'vendorPlugin', 'skill', 'slashCommand', 'agentReview'] as const;
 
 function file(fullPath: string): FileItem {
     const fileName = fullPath.split('/').pop() ?? fullPath;
@@ -203,24 +206,28 @@ type MountedComposer = Readonly<{
 }>;
 
 /** Mounts the session composer wired exactly as `SessionView` wires it. */
-async function renderSessionComposer(): Promise<MountedComposer> {
+async function renderSessionComposer(review?: Pick<ReviewBinding, 'matchesTargetPrefix' | 'resolveModels' | 'resolveTargets'>, onSend: (options?: SubmitOptions) => void = () => {}): Promise<MountedComposer> {
     function Host() {
         const [value, setValue] = React.useState('');
+        const [selection, onSelectionChange] = React.useState<ReviewSelection | null>(null);
+        const agentReview = React.useMemo(() => review ? { ...review, selection, onSelectionChange } : undefined, [selection]);
         // `SessionView.handleAutocompleteSuggestions`, verbatim.
         const handler = React.useCallback(
             (query: string, signal: AbortSignal) => getSuggestions(SESSION_ID, query, {
                 kinds: SESSION_COMPOSER_SUGGESTION_KINDS,
                 workspace: WORKSPACE,
+                agentReview,
                 signal,
             }),
-            [],
+            [agentReview],
         );
         return (
             <AgentInput
                 value={value}
                 onChangeText={setValue}
                 placeholder="Message"
-                onSend={() => {}}
+                onSend={onSend}
+                agentReview={agentReview}
                 autocompleteKinds={SESSION_COMPOSER_SUGGESTION_KINDS}
                 autocompleteSuggestions={handler}
                 sessionId={SESSION_ID}
@@ -296,6 +303,48 @@ async function pressRow(composer: MountedComposer, optionId: string): Promise<Pr
 }
 
 describe('AgentInput — a pointer press on a suggestion rewrites the composer', () => {
+    it('chooses an agent and model by keyboard, preserves instructions and submits the explicit reviewer', async () => {
+        const codex = { agentId: 'codex', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, label: 'Codex' } as const;
+        const gemini = { agentId: 'gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' }, label: 'Gemini' } as const;
+        const resolveModels = vi.fn(async () => [{ id: null, label: 'Default' }, { id: 'review-model', label: 'Review model' }]);
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({ matchesTargetPrefix: query => [codex, gemini].some(target => target.label.toLowerCase().startsWith(query.toLowerCase())), resolveTargets: async () => [codex, gemini], resolveModels }, onSend);
+        const press = async (key: string) => {
+            await act(async () => { composer.textarea.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); });
+        };
+        await typeIntoComposer(composer, 'Check the draft @agent');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:gemini')).not.toBeNull());
+        await press('ArrowDown');
+        await press('Enter');
+        expect(composer.text()).toBe('Check the draft @agent:gemini/');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:gemini/review-model')).not.toBeNull());
+        await press('ArrowDown');
+        await press('Tab');
+        expect(composer.text()).toBe('Check the draft @Gemini ');
+        expect(onSend).not.toHaveBeenCalled();
+        const chip = document.querySelector<HTMLElement>('[data-testid="agent-input-reviewer"]');
+        expect(chip?.textContent).toContain('Review model');
+        await press('Enter');
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ agentReviewSelection: { target: gemini, modelId: 'review-model', modelLabel: 'Review model' } }));
+        await act(async () => { chip?.click(); });
+        expect(composer.text()).toBe('Check the draft ');
+        expect(document.querySelector('[data-testid="agent-input-reviewer"]')).toBeNull();
+    });
+
+    it.each([['@clau', 'claude'], ['@gemini', 'gemini']] as const)('opens %s directly in the session composer', async (query, agentId) => {
+        const target = { agentId, label: agentId, backendTarget: { kind: 'builtInAgent', agentId } } as const;
+        const resolveModels = vi.fn(async () => [{ id: 'test-model', label: 'Test model' }]);
+        const composer = await renderSessionComposer({ matchesTargetPrefix: value => agentId.startsWith(value),
+            resolveTargets: async () => [target], resolveModels });
+        await typeIntoComposer(composer, 'Look at this ' + query);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + agentId)).not.toBeNull());
+        await pressRow(composer, 'agentReview:' + agentId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + agentId + '/test-model')).not.toBeNull());
+        await pressRow(composer, 'agentReview:' + agentId + '/test-model');
+        expect(composer.text()).toBe('Look at this @' + agentId + ' ');
+        expect(document.querySelector('[data-testid="agent-input-reviewer"]')?.textContent).toContain('Test model');
+    });
+
     it('commits a file suggestion without the press stealing composer focus', async () => {
         searchFilesMock.mockResolvedValue([file('README.md'), file('docs/README.md')]);
 

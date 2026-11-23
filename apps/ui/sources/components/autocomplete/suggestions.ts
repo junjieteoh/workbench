@@ -60,6 +60,7 @@ export const COMPOSER_SUGGESTION_KIND_DEADLINE_MS = 2_500;
 const EMPTY_CATALOGS: ComposerSuggestionCatalogs = Object.freeze({});
 
 export type GetSuggestionsOptions = Readonly<{
+    agentReview?: import('@/components/sessions/agentInput/agentReviewComposer').AgentReviewComposerBinding;
     /** The host's scoped snapshot; bypasses the session-metadata catalog read. */
     catalogs?: ComposerSuggestionCatalogs;
     /** Scoped pre-session source, demanded only by kinds with native catalogs. */
@@ -196,6 +197,7 @@ function countRows(settlements: readonly KindSettlement[]): number {
 }
 
 type KindResolveArgs = Readonly<{
+    agentReview?: GetSuggestionsOptions['agentReview'];
     sessionId: string | null;
     workspace: FileSuggestionScope | null;
     serverId: string | null;
@@ -245,6 +247,8 @@ async function resolveKindCandidates(
         scopedQuery: args.scopedQuery,
         scope: args.scope,
         catalogs,
+        agentReview: args.agentReview,
+        signal: args.signal,
         limit: definition.limit,
     });
 }
@@ -257,7 +261,11 @@ export async function getSuggestions(
     const parsed = parseComposerSuggestionQuery(query);
     if (!parsed) return [];
 
-    const scope = resolveComposerSuggestionScope(parsed.trigger, parsed.query);
+    const reviewEnabled = !!options?.agentReview && (options.kinds?.includes('agentReview') ?? true);
+    const scopeQuery = reviewEnabled && parsed.trigger === '@' && parsed.query === 'agent' ? 'agent:' : parsed.query;
+    const resolvedScope = resolveComposerSuggestionScope(parsed.trigger, scopeQuery);
+    const scope = resolvedScope.kind === 'agentReview' && !reviewEnabled
+        ? { kind: null, scope: null, scopedQuery: parsed.query } : resolvedScope;
     const triggerKinds = resolveComposerSuggestionKindsForTrigger(
         options?.kinds ?? COMPOSER_SUGGESTION_KIND_IDS,
         parsed.trigger,
@@ -266,13 +274,16 @@ export async function getSuggestions(
     // intent (`@plugin:foo`). That is not the implicit suppression INV-2 forbids.
     const definitions = scope.kind
         ? triggerKinds.filter((definition) => definition.id === scope.kind)
-        : triggerKinds;
+        : parsed.trigger === '@' && reviewEnabled && options?.agentReview?.matchesTargetPrefix(parsed.query)
+            ? [...triggerKinds].sort((a, b) => Number(b.id === 'agentReview') - Number(a.id === 'agentReview'))
+            : triggerKinds;
     if (definitions.length === 0) return [];
 
     const signal = options?.signal;
     if (signal?.aborted) return [];
 
     const args: KindResolveArgs = {
+        agentReview: options?.agentReview,
         sessionId,
         workspace: options?.workspace ?? null,
         serverId: options?.serverId ?? null,
