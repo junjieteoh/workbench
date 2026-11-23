@@ -81,7 +81,7 @@ export async function startSessionAgentReview(params: Readonly<{
                 context,
             ].join('\n\n'),
         }, {
-            surface: 'ui_button', placement: 'agent_input_chips',
+            surface: 'ui_button',
             defaultSessionId: params.sessionId, serverId: params.serverId,
             actionRequestId: params.startRequestId,
         });

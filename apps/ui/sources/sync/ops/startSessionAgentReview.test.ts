@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ActionsSettingsV1Schema, isActionEnabledByActionsSettings } from '@happier-dev/protocol';
+
 import type { Message } from '@/sync/domains/messages/messageTypes';
 
 const { execute, getState } = vi.hoisted(() => ({ execute: vi.fn(), getState: vi.fn() }));
@@ -46,6 +48,14 @@ describe('startSessionAgentReview', () => {
         expect(request.instructions).toMatch(/User asked for a forecast\.[\s\S]+Latest lead draft\./);
         expect(request.instructions).toContain('Ask about the cited file.');
         expect(request.instructions).not.toMatch(/Private reasoning|Different conversation|Peer message|internal notification|Routed to teammate/);
+    });
+
+    it('allows an explicit mention with default shortcut settings and respects disabled UI actions', async () => {
+        await startSessionAgentReview(params);
+        const [action, , context] = execute.mock.calls[0]!;
+        expect(isActionEnabledByActionsSettings(action, ActionsSettingsV1Schema.parse({ v: 1, actions: {} }), context)).toBe(true);
+        const disabled = ActionsSettingsV1Schema.parse({ v: 1, actions: { [action]: { disabledSurfaces: ['ui_button'] } } });
+        expect(isActionEnabledByActionsSettings(action, disabled, context)).toBe(false);
     });
 
     it('pins identical input on retry even after more draft text has arrived, and omits the default model', async () => {
