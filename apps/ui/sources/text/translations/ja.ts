@@ -5710,6 +5710,11 @@ localTailscale: {
   sessionHandoff: sessionHandoffTranslationExtensions.ja,
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: 'この会話には、レビューできるメインエージェントの返信がまだありません。',
+      unavailable: '現在、このセッションではレビューを開始できません。',
+      instructions: 'レビュー担当者に確認してほしい内容を書いてください。',
+    },
     inputPlaceholder: "メッセージを入力...",
     transcriptNavigation: {
       title: "ナビゲート",
@@ -7267,6 +7272,14 @@ localTailscale: {
       chipPicker: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。選択中。`,
       },
+    agentReview: {
+        group: "レビュー担当エージェント",
+        choose: "エージェントにレビューを依頼…",
+        none: "該当なし",
+        unavailable: "この端末から選択肢を取得できませんでした",
+        review: "レビュー",
+        remove: "レビュー担当を外す",
+    },
     suggestionGroups: {
       files: 'ファイル',
       plugins: 'プラグイン',

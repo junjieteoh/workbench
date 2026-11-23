@@ -1,5 +1,7 @@
+import { AGENT_IDS } from '@happier-dev/agents';
 import type { ParticipantRecipientV1 } from '@happier-dev/protocol';
 import {
+    BackendTargetRefSchema,
     ComposerAgentContinuationIntentV1Schema,
     ParticipantRecipientV1Schema,
     SessionAgentTransitionInputV1Schema,
@@ -88,7 +90,22 @@ export const ComposerSessionMentionSchema = z.object({
 
 export type ComposerSessionMention = z.infer<typeof ComposerSessionMentionSchema>;
 
-const KNOWN_COMPOSER_MENTION_KINDS: ReadonlySet<string> = new Set(['vendorPlugin', 'skill', 'session']);
+// A typed choice identifies the reviewer. The visible token alone never routes a message.
+export const ComposerAgentReviewSelectionSchema = z.object({
+    target: z.object({ backendTarget: BackendTargetRefSchema, agentId: z.enum(AGENT_IDS), label: z.string().min(1) }),
+    modelId: z.string().min(1).nullable(),
+    modelLabel: z.string().min(1),
+});
+export type ComposerAgentReviewSelection = z.infer<typeof ComposerAgentReviewSelectionSchema>;
+const ComposerAgentReviewMentionSchema = z.object({
+    kind: z.literal('agentReview'),
+    ...ComposerMentionTokenShape,
+    selection: ComposerAgentReviewSelectionSchema,
+    localId: z.string().min(1),
+});
+export type ComposerAgentReviewMention = z.infer<typeof ComposerAgentReviewMentionSchema>;
+
+const KNOWN_COMPOSER_MENTION_KINDS: ReadonlySet<string> = new Set(['vendorPlugin', 'skill', 'session', 'agentReview']);
 
 /**
  * INV-4: a well-formed mention of a kind this build does not know survives load, save and
@@ -119,6 +136,7 @@ export const ComposerStructuredInputMentionSchema = z.union([
     ComposerVendorPluginMentionSchema,
     ComposerSkillMentionSchema,
     ComposerSessionMentionSchema,
+    ComposerAgentReviewMentionSchema,
     ComposerUnknownMentionSchema,
 ]);
 
@@ -126,6 +144,7 @@ export type ComposerStructuredInputMention =
     | ComposerVendorPluginMention
     | ComposerSkillMention
     | ComposerSessionMention
+    | ComposerAgentReviewMention
     | ComposerUnknownMention;
 
 /**

@@ -4782,6 +4782,11 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
     sessionHandoff: sessionHandoffTranslationExtensions['zh-Hant'],
 
       session: {
+          agentReviewErrors: {
+              noLeadDraft: '主要代理程式尚未在此對話中回覆，目前沒有可供審閱的內容。',
+              unavailable: '此對話目前無法開始審閱。',
+              instructions: '請寫下希望審閱者檢查的內容。',
+          },
           inputPlaceholder: '輸入訊息...',
           transcriptNavigation: {
               title: '導覽',
@@ -5930,6 +5935,14 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         },
         chipPicker: {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。已選擇。`,
+        },
+        agentReview: {
+            group: "審閱代理",
+            choose: "請代理審閱…",
+            none: "無相符項目",
+            unavailable: "無法從這台機器載入選項",
+            review: "審閱",
+            remove: "移除審閱者",
         },
         suggestionGroups: {
             files: '檔案',

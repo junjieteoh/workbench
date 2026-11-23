@@ -48,6 +48,7 @@ import { useComposerKeepsFocusAfterSend } from './hooks/useComposerKeepsFocusAft
 import type { NewSessionAfterSendMode } from '@/sync/domains/settings/registry/account/accountSessionCreationSettingDefinitions';
 import { ComposerHistorySwipeArea, type ComposerHistoryDirection } from './ComposerHistorySwipeArea';
 import { AgentInputKeepKeyboardToggle } from './components/AgentInputKeepKeyboardToggle';
+import { applyAgentReviewChoice, findAgentReviewToken, removeAgentReviewToken, type AgentReviewComposerBinding } from './agentReviewComposer';
 import { buildAgentInputSendMenuItems } from './agentInputSendOptions';
 import { Theme } from '@/theme';
 import { t } from '@/text';
@@ -333,6 +334,7 @@ interface AgentInputProps {
     activeStatusBadgeKey?: string | null;
     onActiveStatusBadgeKeyChange?: (key: string | null) => void;
     /** Eligible suggestion kinds for this composer host. Trigger characters follow from the kinds (INV-1). */
+    agentReview?: AgentReviewComposerBinding;
     autocompleteKinds: readonly ComposerSuggestionKindId[];
     /** Receives an abort signal for the query it is resolving; a superseded query is never applied (D-15). */
     autocompleteSuggestions: ActiveSuggestionsHandler;
@@ -1670,14 +1672,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             text: liveInputText,
         });
         const hasStructuredInputMeta = Object.keys(structuredInputMetaOverrides).length > 0;
+        const review = props.agentReview?.selection;
+        const agentReviewSelection = review && findAgentReviewToken(liveInputText, review.target) >= 0 ? review : null;
         const shouldCarryLiveInputText = !props.sessionId || liveInputText !== props.value;
         props.onSend(
-            options?.forceImmediate === true || options?.deliveryIntent != null || options?.afterSend != null || options?.queueHandoffAfterTurnId != null || hasStructuredInputMeta
+            options?.forceImmediate === true || options?.deliveryIntent != null || options?.afterSend != null || options?.queueHandoffAfterTurnId != null || hasStructuredInputMeta || agentReviewSelection
                 ? {
                     ...(options?.forceImmediate === true ? { forceImmediate: true } : {}),
                     ...(options?.deliveryIntent != null ? { deliveryIntent: options.deliveryIntent } : {}),
                     ...(options?.afterSend != null ? { afterSend: options.afterSend } : {}),
                     ...(options?.queueHandoffAfterTurnId ? { queueHandoffAfterTurnId: options.queueHandoffAfterTurnId } : {}),
+                    ...(agentReviewSelection ? { agentReviewSelection } : {}),
                     ...(hasStructuredInputMeta ? { structuredInputMetaOverrides } : {}),
                     ...(shouldCarryLiveInputText ? { inputTextOverride: liveInputText } : {}),
                 }
@@ -1685,6 +1690,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         );
     }, [
         keepFocusAfterSend,
+        props.agentReview,
         messageHistory,
         props.onSend,
         props.sessionId,
@@ -1788,7 +1794,29 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const activeWord = activeWordState?.activeWord ?? null;
     const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled ? activeWord : null;
     // Selection follows candidate identity, not an index (INV-6) — the hook owns that.
-    const [suggestions, selected, moveUp, moveDown] = useActiveSuggestions(activeSuggestionQuery, props.autocompleteSuggestions, { wrapAround: true });
+    const [resolvedSuggestions, selected, moveUp, moveDown, resolvedSuggestionQuery] = useActiveSuggestions(activeSuggestionQuery, props.autocompleteSuggestions, { wrapAround: true });
+
+    const choosingReviewer = !!props.agentReview && activeSuggestionQuery !== null
+        && (activeSuggestionQuery === '@agent' || activeSuggestionQuery.startsWith('@agent:')
+            || (!!activeSuggestionQuery.slice(1) && activeSuggestionQuery[0] === '@'
+                && props.agentReview.matchesTargetPrefix(activeSuggestionQuery.slice(1))));
+    const suggestions = React.useMemo(() => {
+        if (!choosingReviewer || !activeSuggestionQuery || resolvedSuggestionQuery === activeSuggestionQuery) return resolvedSuggestions;
+        // Keep Enter inside the picker while its machine lookup is in flight.
+        return [{ kind: 'agentReview', key: 'agentReview:loading', text: activeSuggestionQuery,
+            label: t('common.loading'), agentReview: { kind: 'status' }, agentReviewQuery: activeSuggestionQuery.slice(1) }] as const;
+    }, [choosingReviewer, activeSuggestionQuery, resolvedSuggestionQuery, resolvedSuggestions]);
+    const clearReviewer = React.useCallback(() => {
+        const review = props.agentReview?.selection;
+        if (!review) return;
+        const live = inputRef.current?.getText?.() ?? inputStateRef.current.text;
+        const removal = removeAgentReviewToken(live, review.target);
+        if (removal.start >= 0) {
+            inputRef.current?.setTextAndSelection(removal.text, { start: removal.start, end: removal.start });
+        }
+        props.agentReview?.onSelectionChange(null);
+        inputRef.current?.focus();
+    }, [props.agentReview]);
 
     // Handle suggestion selection
     const handleSuggestionSelect = React.useCallback((index: number) => {
@@ -1804,6 +1832,21 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 end: result.cursorPosition
             });
         };
+
+        if (suggestion.agentReview) {
+            const action = suggestion.agentReview;
+            const bound = props.agentReview;
+            if (!bound || action.kind === 'status' || !activeWordForSelection
+                || activeWordForSelection.activeWord.slice(1) !== suggestion.agentReviewQuery) return;
+            applyResolvedSelection(applyAgentReviewChoice({
+                text: currentInputState.text, selection: currentInputState.selection,
+                token: suggestion.text, kinds: props.autocompleteKinds,
+                modelChosen: action.kind === 'model', previous: bound.selection?.target ?? null,
+            }));
+            if (action.kind === 'model') bound.onSelectionChange(action.selection);
+            hapticsLight();
+            return;
+        }
 
         const applyDefaultSelection = () => {
             const result = applySuggestion(
@@ -1853,7 +1896,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         applyDefaultSelection();
         hapticsLight();
-    }, [suggestions, props.autocompleteKinds, updateStructuredInputMentions]);
+    }, [suggestions, props.agentReview, props.autocompleteKinds, updateStructuredInputMentions]);
 
     // --- Command Menu adapter ---
     // Bridges existing autocomplete state into the CommandMenu primitive shape.
@@ -2884,6 +2927,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             abortConfirmationExpiresAt: abortConfirmationExpiresAtRef.current,
             nowMs: Date.now(),
         });
+        if (choosingReviewer && event.key === 'Escape' && handleCommandMenuKey(event)) return true;
         if (escapeAction) {
             runAbortShortcutAction(escapeAction);
             return true;
@@ -2933,7 +2977,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             }
         }
         return false; // Key was not handled
-    }, [handleCommandMenuKey, props.disabled, props.hasSendableAttachments, props.armedContinuationTarget, props.canSendNextQueued, props.alternateSendMode, props.onSend, handleSend, props.onPermissionModeChange, keyboardShortcutsV2Enabled, keyboardSingleKeyShortcutsEnabled, keyboardShortcutOverridesV1, keyboardShortcutDisabledCommandIdsV1, permissionModeOrder, effectivePermissionPolicy.effectiveMode, messageHistory, stepMessageHistory, props.newSessionAfterSendMode, sendActionDisabled, enterToSendEnabled, canStopFromComposer, isAborting, runAbortShortcutAction]);
+    }, [choosingReviewer, handleCommandMenuKey, props.disabled, props.hasSendableAttachments, props.armedContinuationTarget, props.canSendNextQueued, props.alternateSendMode, props.onSend, handleSend, props.onPermissionModeChange, keyboardShortcutsV2Enabled, keyboardSingleKeyShortcutsEnabled, keyboardShortcutOverridesV1, keyboardShortcutDisabledCommandIdsV1, permissionModeOrder, effectivePermissionPolicy.effectiveMode, messageHistory, stepMessageHistory, props.newSessionAfterSendMode, sendActionDisabled, enterToSendEnabled, canStopFromComposer, isAborting, runAbortShortcutAction]);
 
     const handleSubmitEditing = React.useCallback(() => {
         if (Platform.OS === 'web') return;
@@ -3259,6 +3303,14 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 updateLayoutHeight(setActionFooterHeightPx, event.nativeEvent.layout.height);
             }}
         >
+            {props.agentReview?.selection ? (
+                <View style={{ alignSelf: 'flex-start' }}>
+                    <RoundButton size="small" testID="agent-input-reviewer" disabled={props.disabled}
+                        title={t('agentInput.agentReview.review') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel + ' ×'}
+                        accessibilityLabel={t('agentInput.agentReview.remove') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel}
+                        onPress={clearReviewer} />
+                </View>
+            ) : null}
             {props.armedContinuationTarget && queueHandoffAfterTurnId ? (
                 <View style={{ alignSelf: 'flex-end' }}>
                     <RoundButton

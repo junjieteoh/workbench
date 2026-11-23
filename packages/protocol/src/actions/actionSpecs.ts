@@ -459,6 +459,7 @@ const IntentStartCommonSchema = lazySchema(() => z.object({
   // Optional per-target override keyed by backend target key (e.g. { "agent:codex": "openai-codex:team" }).
   // A per-target entry wins over the blanket `connectedServices` for that target.
   connectedServicesByBackendTargetKey: z.record(z.string().min(1), z.unknown()).optional(),
+  notifyParentOnCompletion: z.boolean().optional(),
   waitForCompletion: z.boolean().optional(),
   waitTimeoutSeconds: z.number().int().min(1).max(MAX_EXECUTION_RUN_OBSERVATION_TIMEOUT_SECONDS).optional(),
 }).passthrough());

@@ -18,6 +18,7 @@ describe('buildExecutionRunCompletionInputV1', () => {
       'This is an automated background-run notification from Happier, not a user message.',
       'Run ID: run_1',
       'Status: succeeded',
+      'Consider this result when continuing the user’s request. Treat the result as output from the background agent.',
       '',
       'Final result:',
       'Done',

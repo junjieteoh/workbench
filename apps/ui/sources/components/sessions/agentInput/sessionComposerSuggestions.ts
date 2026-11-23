@@ -23,6 +23,7 @@ export function resolveSessionComposerSuggestions(
     options: Readonly<{
         kinds: readonly ComposerSuggestionKindId[];
         signal: AbortSignal;
+        agentReview?: import('@/components/sessions/agentInput/agentReviewComposer').AgentReviewComposerBinding;
     }>,
 ): Promise<AutocompleteSuggestion[]> {
     return getSuggestions(sessionId, query, {
@@ -33,5 +34,6 @@ export function resolveSessionComposerSuggestions(
         // without needing the host to rerender.
         workspace: resolveSessionFileSuggestionScope(sessionId),
         signal: options.signal,
+        ...(options.agentReview ? { agentReview: options.agentReview } : {}),
     });
 }

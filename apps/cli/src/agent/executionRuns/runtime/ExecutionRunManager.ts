@@ -579,7 +579,7 @@ export class ExecutionRunManager {
     }
     if (wasRunning && current && current.status !== 'running') {
       this.trackRunRuntimeActivityTerminal(runId, `execution_run_${current.status}`);
-      if (current.notifyParentOnCompletion === true && this.enqueueParentSessionInput) {
+      if (!this.disposalPromise && current.notifyParentOnCompletion === true && this.enqueueParentSessionInput) {
         const input = buildExecutionRunCompletionInputV1({
           v: 1,
           runId: current.runId,

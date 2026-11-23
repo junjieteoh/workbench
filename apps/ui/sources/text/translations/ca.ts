@@ -5102,6 +5102,11 @@ deps: {
     sessionHandoff: sessionHandoffTranslationExtensions.ca,
 
     session: {
+        agentReviewErrors: {
+            noLeadDraft: 'Encara no hi ha cap resposta de l’agent principal per revisar en aquesta conversa.',
+            unavailable: 'Aquesta sessió no pot iniciar la revisió ara mateix.',
+            instructions: 'Escriu què vols que comprovi el revisor.',
+        },
         inputPlaceholder: 'Escriu un missatge...',
         transcriptNavigation: {
             title: 'Navega',
@@ -6613,6 +6618,14 @@ deps: {
         },
         chipPicker: {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Seleccionat.`,
+        },
+        agentReview: {
+            group: "Agents de revisió",
+            choose: "Demana una revisió a un agent…",
+            none: "Cap coincidència",
+            unavailable: "No s’han pogut carregar les opcions d’aquest equip",
+            review: "Revisió",
+            remove: "Suprimeix el revisor",
         },
         suggestionGroups: {
             files: 'Fitxers',

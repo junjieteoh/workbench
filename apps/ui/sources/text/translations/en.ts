@@ -5107,6 +5107,11 @@ export const en = {
     },
 
     session: {
+        agentReviewErrors: {
+            noLeadDraft: 'There’s no reply from the lead agent to review in this conversation yet.',
+            unavailable: 'This session can’t start that review right now.',
+            instructions: 'Write what you’d like the reviewer to check.',
+        },
         inputPlaceholder: 'What would you like to work on?',
         transcriptNavigation: {
             title: 'Navigate',
@@ -6647,6 +6652,14 @@ export const en = {
         },
         // Section headers for the composer suggestion picker. One per suggestion
         // kind; the registry maps kind -> key, mirroring markdown.slash.groups.*.
+        agentReview: {
+            group: "Review agents",
+            choose: "Ask an agent to review…",
+            none: "No matches",
+            unavailable: "Couldn’t load choices from this machine",
+            review: "Review",
+            remove: "Remove reviewer",
+        },
         suggestionGroups: {
             files: 'Files',
             plugins: 'Plugins',

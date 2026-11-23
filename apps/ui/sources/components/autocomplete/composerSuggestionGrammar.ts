@@ -169,7 +169,7 @@ export function formatComposerSuggestionToken(trigger: ComposerSuggestionTrigger
     return `${trigger}"${value.replace(/"/g, '""')}"`;
 }
 
-export const COMPOSER_SUGGESTION_KIND_IDS = ['file', 'vendorPlugin', 'session', 'skill', 'slashCommand'] as const;
+export const COMPOSER_SUGGESTION_KIND_IDS = ['file', 'agentReview', 'vendorPlugin', 'session', 'skill', 'slashCommand'] as const;
 
 export type ComposerSuggestionKindId = (typeof COMPOSER_SUGGESTION_KIND_IDS)[number];
 
@@ -179,6 +179,7 @@ export type ComposerSuggestionKindId = (typeof COMPOSER_SUGGESTION_KIND_IDS)[num
  */
 const COMPOSER_SUGGESTION_KIND_TRIGGERS = {
     file: '@',
+    agentReview: '@',
     vendorPlugin: '@',
     session: '@',
     skill: '$',

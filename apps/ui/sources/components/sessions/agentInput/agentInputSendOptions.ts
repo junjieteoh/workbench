@@ -3,6 +3,7 @@ import type { NewSessionAfterSendMode } from '@/sync/domains/settings/registry/a
 import { t } from '@/text';
 
 export type AgentInputSendOptions = Readonly<{
+    agentReviewSelection?: import('./agentReviewComposer').ComposerAgentReviewSelection;
     forceImmediate?: boolean;
     queueHandoffAfterTurnId?: string;
     sendNextQueued?: boolean;

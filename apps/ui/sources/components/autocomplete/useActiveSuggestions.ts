@@ -156,5 +156,5 @@ export function useActiveSuggestions(
     }
 
     // Return state suggestions
-    return [state.suggestions, state.selected, moveUp, moveDown] as const;
+    return [state.suggestions, state.selected, moveUp, moveDown, state.query] as const;
 }

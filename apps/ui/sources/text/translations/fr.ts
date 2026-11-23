@@ -5086,6 +5086,11 @@ export const fr: TranslationStructure = {
     },
 
     session: {
+        agentReviewErrors: {
+            noLeadDraft: 'L’agent principal n’a pas encore répondu dans cette conversation. Il n’y a donc rien à relire.',
+            unavailable: 'Cette session ne peut pas lancer la relecture pour le moment.',
+            instructions: 'Indique ce que tu souhaites faire vérifier.',
+        },
         inputPlaceholder: 'Sur quoi veux-tu travailler ?',
         transcriptNavigation: {
             title: 'Naviguer',
@@ -6602,6 +6607,14 @@ export const fr: TranslationStructure = {
         },
         // Section headers for the composer suggestion picker. One per suggestion
         // kind; the registry maps kind -> key, mirroring markdown.slash.groups.*.
+        agentReview: {
+            group: "Agents de relecture",
+            choose: "Demander une relecture à un agent…",
+            none: "Aucun résultat",
+            unavailable: "Impossible de charger les options de cette machine",
+            review: "Relecture",
+            remove: "Retirer le relecteur",
+        },
         suggestionGroups: {
             files: 'Fichiers',
             plugins: 'Plugins',

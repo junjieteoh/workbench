@@ -605,6 +605,23 @@ describe('ExecutionRunManager (review intent)', () => {
     expect(meta?.happier?.kind).toBe('review_findings.v2');
   });
 
+  it('retains the terminal run result without notifying a replacement lead during parent shutdown', async () => {
+    const enqueueParentSessionInput = vi.fn(async () => {});
+    const manager = new ExecutionRunManager({
+      parentProvider: 'claude', cwd: process.cwd(), sendAcp: () => {}, enqueueParentSessionInput,
+      createBackend: () => createDelayedJsonBackend('{"summary":"late","deliverables":[]}', 50),
+    });
+    const started = await manager.start({
+      sessionId: 'parent', intent: 'delegate', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' },
+      instructions: 'Review.', permissionMode: 'read_only', runClass: 'bounded', ioMode: 'request_response',
+      retentionPolicy: 'ephemeral', notifyParentOnCompletion: true,
+    });
+
+    await manager.dispose();
+    expect(manager.getPublic(started.runId)?.status).toBe('cancelled');
+    expect(enqueueParentSessionInput).not.toHaveBeenCalled();
+  });
+
   it('enqueues opted-in parent completion through Session input without replacing tool-result metadata', async () => {
     const sent: Array<{ body: unknown; meta?: Record<string, unknown> }> = [];
     const parentInputs: Array<{ text: string; meta?: Record<string, unknown> }> = [];

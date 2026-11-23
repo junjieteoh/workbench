@@ -5428,6 +5428,11 @@ export const es: TranslationStructure = {
   sessionHandoff: sessionHandoffTranslationExtensions.es,
 
   session: {
+    agentReviewErrors: {
+      noLeadDraft: 'El agente principal aún no ha respondido en esta conversación. Todavía no hay una respuesta que revisar.',
+      unavailable: 'Esta sesión no puede iniciar la revisión ahora mismo.',
+      instructions: 'Escribe qué quieres que se revise.',
+    },
     inputPlaceholder: "Escriba un mensaje ...",
     transcriptNavigation: {
       title: "Navegar",
@@ -6987,6 +6992,14 @@ export const es: TranslationStructure = {
       chipPicker: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Seleccionado.`,
       },
+    agentReview: {
+        group: "Agentes de revisión",
+        choose: "Pedir una revisión a un agente…",
+        none: "Sin coincidencias",
+        unavailable: "No se pudieron cargar las opciones de este equipo",
+        review: "Revisión",
+        remove: "Quitar revisor",
+    },
     suggestionGroups: {
       files: 'Archivos',
       plugins: 'Complementos',
