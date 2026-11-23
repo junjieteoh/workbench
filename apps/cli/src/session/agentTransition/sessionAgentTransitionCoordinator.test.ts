@@ -218,18 +218,17 @@ const enabledAgentSwitchingFeatures = FeaturesResponseSchema.parse({
   capabilities: {},
 });
 
+function sourceTransport(raw: ReturnType<typeof rawSession>) {
+  return { ok: true as const, sessionId: SESSION_ID, rawSession: raw,
+    ctx: { encryptionKey: new Uint8Array(), encryptionVariant: 'dataKey' as const }, mode: 'plain' as const };
+}
+
 function primeHappyPath(
   metadata: Record<string, unknown> = sourceMetadata(),
   rawOverrides: Record<string, unknown> = {},
 ): void {
   const raw = rawSession(metadata, rawOverrides);
-  mocks.resolveSessionTransportContext.mockResolvedValue({
-    ok: true,
-    sessionId: SESSION_ID,
-    rawSession: raw,
-    ctx: { encryptionKey: new Uint8Array(), encryptionVariant: 'dataKey' },
-    mode: 'plain',
-  });
+  mocks.resolveSessionTransportContext.mockResolvedValue(sourceTransport(raw));
   mocks.waitForSessionIdle.mockResolvedValue({ ok: true, sessionId: SESSION_ID, idle: true, observedAt: 1 });
   mocks.resolveTrustedSessionAttachmentLocalImagePaths.mockResolvedValue(new Set<string>());
   mocks.fetchSessionByIdCompat.mockResolvedValue(raw);
@@ -561,6 +560,47 @@ describe('runSessionAgentTransition', () => {
       const result = await runSessionAgentTransition({ credentials, request: request() });
 
       expect(result).toEqual({ type: 'rejected', code: 'stale_selection', sourceEffect: 'none' });
+      expect(mocks.requestSessionStop).not.toHaveBeenCalled();
+    });
+
+    it('refreshes a queued switch once when the finishing source publishes final metadata', async () => {
+      primeHappyPath();
+      const initial = rawSession(sourceMetadata());
+      const latest = rawSession(sourceMetadata({ summary: { text: 'Finished draft' } }), { metadataVersion: 9 });
+      mocks.resolveSessionTransportContext.mockResolvedValueOnce(sourceTransport(initial)).mockResolvedValue(sourceTransport(latest));
+      mocks.fetchSessionByIdCompat.mockResolvedValue(latest);
+      const result = await runSessionAgentTransition({ credentials, request: request(),
+        deps: { queuedSource: { machineId: 'machine-1', canStopSource: () => true, stop: vi.fn() } },
+      });
+      expect(result.type).toBe('accepted');
+      expect(mocks.waitForSessionIdle).toHaveBeenCalledTimes(2);
+      expect(mocks.callOrder).toEqual(['stop', 'cutover', 'admit', 'resume']);
+    });
+
+    it.each([{ flavor: 'codex' }, { path: '/different/workspace' }])(
+      'does not dispatch the refreshed handoff if the source changed: %o', async changed => {
+        primeHappyPath();
+        const initial = rawSession(sourceMetadata());
+        const replacement = rawSession(sourceMetadata(changed), { metadataVersion: 9 });
+        mocks.resolveSessionTransportContext.mockResolvedValueOnce(sourceTransport(initial)).mockResolvedValue(sourceTransport(replacement));
+        mocks.fetchSessionByIdCompat.mockResolvedValue(replacement);
+        const result = await runSessionAgentTransition({ credentials, request: request(),
+          deps: { queuedSource: { machineId: 'machine-1', canStopSource: () => true, stop: vi.fn() } },
+        });
+        expect(result).toMatchObject({ type: 'rejected', code: 'stale_selection' });
+        expect(mocks.requestSessionStop).not.toHaveBeenCalled();
+        expect(mocks.enqueuePendingQueueV2MessageViaHttp).not.toHaveBeenCalled();
+      },
+    );
+
+    it('keeps a queued source running if its metadata still changes during the second idle check', async () => {
+      primeHappyPath();
+      mocks.fetchSessionByIdCompat.mockResolvedValue(rawSession(sourceMetadata(), { metadataVersion: 9 }));
+      const result = await runSessionAgentTransition({ credentials, request: request(),
+        deps: { queuedSource: { machineId: 'machine-1', canStopSource: () => true, stop: vi.fn() } },
+      });
+      expect(result).toMatchObject({ type: 'rejected', code: 'stale_selection' });
+      expect(mocks.waitForSessionIdle).toHaveBeenCalledTimes(2);
       expect(mocks.requestSessionStop).not.toHaveBeenCalled();
     });
 

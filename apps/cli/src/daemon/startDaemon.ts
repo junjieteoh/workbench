@@ -5089,6 +5089,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         let observeConnectedServiceRestartProcessMissing: ((tracked: TrackedSession) => Promise<void>) | null = null;
 
         const queuedAgentTransition = createQueuedSessionAgentTransition({
+          onFailure: (details) => logger.warn('[AGENT TRANSITION] Queued handoff ended without confirmed delivery', details),
           readRunner: (sessionId) => {
             const [runner, duplicate] = getCurrentChildren().filter((child) => child.happySessionId === sessionId);
             if (!runner || duplicate) return null;
@@ -5102,6 +5103,11 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 stop: (sessionId) => stopSession(sessionId, { canSignal: canStopSource, transport: 'internal' }),
               } },
             });
+            if (result.type !== 'accepted') {
+              logger.warn('[AGENT TRANSITION] Deferred switch did not confirm admission', {
+                sessionId: request.sessionId, outcome: result.type, code: 'code' in result ? result.code : undefined,
+              });
+            }
             return result.type === 'accepted';
           },
         });

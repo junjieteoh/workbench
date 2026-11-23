@@ -17,6 +17,7 @@ type Runner = Readonly<{ pid: number; activeTurnId: string | null }>;
 
 export function createQueuedSessionAgentTransition(deps: Readonly<{
     readRunner: (sessionId: string) => Runner | null;
+    onFailure?: (details: Readonly<{ sessionId: string; turnId: string; reason: string }>) => void;
     run: (request: SessionAgentTransitionRequestV1, canStopSource: () => boolean) => Promise<boolean>;
 }>) {
     // One daemon owns these armed requests across every paired client. Reboot disarms them.
@@ -25,6 +26,12 @@ export function createQueuedSessionAgentTransition(deps: Readonly<{
     function settle(entry: QueueEntry, status: 'cancelled' | 'completed' | 'failed') {
         entry.summary = { ...entry.summary, status };
         delete entry.request;
+    }
+
+    function fail(entry: QueueEntry, reason: string) {
+        const sessionId = entry.request?.sessionId;
+        settle(entry, 'failed');
+        if (sessionId) deps.onFailure?.({ sessionId, turnId: entry.summary.turnId, reason });
     }
 
     function handle(command: SessionAgentTransitionQueueRequestV1): SessionAgentTransitionQueueResultV1 {
@@ -60,7 +67,7 @@ export function createQueuedSessionAgentTransition(deps: Readonly<{
         if (!entry || turnId === entry.summary.turnId) return;
         if (entry.summary.status === 'dispatching') entry.superseded = true;
         // A turnless prompt can also be a steer on the already tracked source turn.
-        if (turnId && entry.summary.status === 'queued') settle(entry, 'failed');
+        if (turnId && entry.summary.status === 'queued') fail(entry, 'new_source_turn');
     }
 
     async function finishTurn(sessionId: string, turnId: string, status: 'completed' | 'cancelled' | 'failed') {
@@ -71,28 +78,31 @@ export function createQueuedSessionAgentTransition(deps: Readonly<{
             return !entry.superseded && runner?.pid === entry.runnerPid && runner.activeTurnId === null;
         };
         if (status !== 'completed') {
-            settle(entry, status);
+            if (status === 'failed') fail(entry, 'source_turn_failed');
+            else settle(entry, 'cancelled');
             return;
         }
         if (!canStopSource()) {
-            settle(entry, 'failed');
+            fail(entry, 'source_runner_changed');
             return;
         }
 
         entry.summary = { ...entry.summary, status: 'dispatching' };
         try {
             const accepted = await deps.run(entry.request, canStopSource);
-            settle(entry, accepted ? 'completed' : 'failed');
+            if (accepted) settle(entry, 'completed');
+            else fail(entry, 'transition_refused');
         } catch {
             // A lost answer can follow cutover. Never automatically replay the input.
-            settle(entry, 'failed');
+            fail(entry, 'transition_result_unknown');
         }
     }
 
     function failQueuedForRunner(sessionId: string, runnerPid: number, turnId?: string) {
         const entry = entries.get(sessionId);
         if (entry?.runnerPid !== runnerPid || entry.summary.status !== 'queued') return;
-        if (turnId === undefined || entry.summary.turnId === turnId) settle(entry, 'failed');
+        if (turnId === undefined) fail(entry, 'source_runner_exited');
+        else if (entry.summary.turnId === turnId) fail(entry, 'terminal_marker_missing');
     }
 
     return { handle, startTurn, finishTurn, failQueuedForRunner };
