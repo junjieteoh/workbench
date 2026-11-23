@@ -6788,6 +6788,8 @@ export const zhHans: TranslationStructure = {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。已选择。`,
       },
     agentReview: {
+        cachedModels: "已保存的模型列表 · 无法实时刷新",
+        catalogModels: "提供商目录 · 无法实时查询",
         group: "审阅代理",
         choose: "请代理审阅…",
         none: "无匹配项",

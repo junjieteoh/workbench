@@ -6993,6 +6993,8 @@ export const es: TranslationStructure = {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Seleccionado.`,
       },
     agentReview: {
+        cachedModels: "Lista guardada · actualización no disponible",
+        catalogModels: "Catálogo del proveedor · consulta en vivo no disponible",
         group: "Agentes de revisión",
         choose: "Pedir una revisión a un agente…",
         none: "Sin coincidencias",

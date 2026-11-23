@@ -6653,6 +6653,8 @@ export const en = {
         // Section headers for the composer suggestion picker. One per suggestion
         // kind; the registry maps kind -> key, mirroring markdown.slash.groups.*.
         agentReview: {
+            cachedModels: "Saved model list · live refresh unavailable",
+            catalogModels: "Provider catalog · live lookup unavailable",
             group: "Review agents",
             choose: "Ask an agent to review…",
             none: "No matches",

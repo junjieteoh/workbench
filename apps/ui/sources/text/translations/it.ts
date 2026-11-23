@@ -7343,6 +7343,8 @@ export const it: TranslationStructure = {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Selezionato.`,
       },
     agentReview: {
+        cachedModels: "Elenco salvato · aggiornamento non disponibile",
+        catalogModels: "Catalogo del fornitore · ricerca in tempo reale non disponibile",
         group: "Agenti di revisione",
         choose: "Chiedi una revisione a un agente…",
         none: "Nessun risultato",

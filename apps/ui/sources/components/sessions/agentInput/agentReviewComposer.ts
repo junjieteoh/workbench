@@ -7,12 +7,13 @@ import { t } from '@/text';
 
 export type { ComposerAgentReviewSelection } from '@/sync/domains/input/draftValues/sessionDraftValueTypes';
 export type ComposerAgentReviewTarget = ComposerAgentReviewSelection['target'];
+export type ComposerAgentReviewModel = Readonly<{ id: string | null; label: string; source?: 'cached' | 'catalog' }>;
 export type AgentReviewComposerBinding = Readonly<{
     selection: ComposerAgentReviewSelection | null;
     onSelectionChange(value: ComposerAgentReviewSelection | null): void;
     matchesTargetPrefix(query: string): boolean;
     resolveTargets(signal?: AbortSignal): Promise<readonly ComposerAgentReviewTarget[]>;
-    resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly { id: string | null; label: string }[]>;
+    resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly ComposerAgentReviewModel[]>;
 }>;
 export type AgentReviewSuggestionAction =
     | { kind: 'open' | 'status' }
@@ -101,10 +102,11 @@ export async function resolveAgentReviewSuggestions(params: {
                 const models = await binding.resolveModels(target, signal);
                 const search = scopedQuery.slice(separator + 1).toLowerCase();
                 const matches = models.filter(model => [model.label, model.id].some(value => value?.toLowerCase().includes(search)));
-                if (matches.length) return matches.map(model => row(
-                    targetQueryId(target) + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
-                    { kind: 'model', selection: { target, modelId: model.id, modelLabel: model.label } },
-                ));
+                if (matches.length) return matches.map(model => ({
+                    ...row(targetQueryId(target) + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
+                        { kind: 'model', selection: { target, modelId: model.id, modelLabel: model.label } }),
+                    ...(model.source ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') } : {}),
+                }));
             }
         }
         if (bareTarget) return [];

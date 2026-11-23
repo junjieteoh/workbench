@@ -14,7 +14,7 @@ import { resolveNewSessionCapabilityProbeContext } from '@/components/sessions/n
 import { buildBackendTargetKey } from '@happier-dev/protocol';
 
 import { buildSessionConnectedServicesBindings, readConnectedServicesBindingsFromMetadata } from './hooks/useSessionConnectedServicesAuthSwitch';
-import type { AgentReviewComposerBinding, ComposerAgentReviewSelection, ComposerAgentReviewTarget } from './agentReviewComposer';
+import type { AgentReviewComposerBinding, ComposerAgentReviewModel, ComposerAgentReviewSelection, ComposerAgentReviewTarget } from './agentReviewComposer';
 
 export function useSessionAgentReviewComposer(params: Readonly<{
     enabled: boolean;
@@ -45,6 +45,7 @@ export function useSessionAgentReviewComposer(params: Readonly<{
     const resolveModels = React.useCallback(async (target: ComposerAgentReviewTarget, signal?: AbortSignal) => {
         if (!machineId || signal?.aborted) return [];
         const core = getAgentCore(target.agentId);
+        let source: ComposerAgentReviewModel['source'];
         let options = core.model.supportsSelection ? getModelOptionsForAgentType(target.agentId) : getModelOptionsForModes(['default']);
         if (core.model.supportsSelection && core.model.dynamicProbe !== 'static-only') {
             const probe = resolveNewSessionCapabilityProbeContext({ backendTarget: target.backendTarget, settings, sessionMetadata: metadata });
@@ -62,10 +63,13 @@ export function useSessionAgentReviewComposer(params: Readonly<{
                 capabilityParams: { timeoutMs: NEW_SESSION_CAPABILITY_PROBE_TIMEOUT_MS, ...(profileId ? { profileId } : {}),
                     ...probe?.capabilityParams, connectedServices, ...(cwd ? { cwd } : {}) },
             });
-            if (entry?.kind !== 'success' || entry.staticFallback || entry.errorUpdatedAt !== undefined) throw new Error('Review model discovery unavailable');
+            if (entry?.kind !== 'success') throw new Error('Review model discovery unavailable');
+            // The native picker retains the last observed list, then the provider's
+            // catalog when live discovery fails. Keep that choice explicit in each row.
+            source = entry.staticFallback ? 'catalog' : entry.errorUpdatedAt !== undefined ? 'cached' : undefined;
             options = getModelOptionsForPreflightModelList(entry.value);
         }
-        return options.filter(option => option.value !== 'custom').map(option => ({ id: option.value === 'default' ? null : option.value, label: option.label }));
+        return options.filter(option => option.value !== 'custom').map(option => ({ id: option.value === 'default' ? null : option.value, label: option.label, ...(source ? { source } : {}) }));
     }, [machineId, serverId, cwd, profileId, metadata, settings]);
     return React.useMemo(() => params.enabled && machineId ? { matchesTargetPrefix, resolveTargets, resolveModels, selection, onSelectionChange } : undefined,
         [params.enabled, machineId, matchesTargetPrefix, resolveTargets, resolveModels, selection, onSelectionChange]);

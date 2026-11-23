@@ -7273,6 +7273,8 @@ localTailscale: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。選択中。`,
       },
     agentReview: {
+        cachedModels: "保存済みモデル一覧 · 更新できません",
+        catalogModels: "プロバイダーのカタログ · ライブ検索は利用できません",
         group: "レビュー担当エージェント",
         choose: "エージェントにレビューを依頼…",
         none: "該当なし",

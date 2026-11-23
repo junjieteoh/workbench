@@ -159,6 +159,31 @@ describe('useMachineCapabilitiesCache (hook)', () => {
         await expect(Promise.all([p1, p2])).resolves.toBeDefined();
     });
 
+    it('waits for a newly requested capability while the first machine probe is still loading', async () => {
+        vi.resetModules();
+        let finishFirst!: () => void;
+        const machineCapabilitiesDetect = vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => {
+                finishFirst = () => resolve({ supported: true, response: { protocolVersion: 1, results: {} } });
+            }))
+            .mockResolvedValueOnce({ supported: true, response: { protocolVersion: 1, results: {
+                'tool.executionRuns': { ok: true, checkedAt: 1, data: { backends: { gemini: { available: true } } } },
+            } } });
+        vi.doMock('@/sync/ops', () => ({ machineCapabilitiesDetect }));
+        const { prefetchMachineCapabilities, prefetchMachineCapabilitiesIfStale, getMachineCapabilitiesCacheState } = await import('./useMachineCapabilitiesCache');
+        const scope = { machineId: 'cold-worker', serverId: 'relay' };
+        const initial = prefetchMachineCapabilities({ ...scope, request: newSessionRequest() });
+        await flushHookEffects();
+        expect(getMachineCapabilitiesCacheState(scope.machineId, scope.serverId)).toEqual({ status: 'loading' });
+        const requested = prefetchMachineCapabilitiesIfStale({ ...scope, staleMs: 60_000, request: { requests: [{ id: 'tool.executionRuns' }] } });
+        finishFirst();
+        await Promise.all([initial, requested]);
+        expect(getMachineCapabilitiesCacheState(scope.machineId, scope.serverId)).toMatchObject({
+            status: 'loaded', snapshot: { response: { results: { 'tool.executionRuns': { ok: true } } } },
+        });
+        expect(machineCapabilitiesDetect).toHaveBeenCalledTimes(2);
+    });
+
     it('refetches when a later request needs a capability missing from the cached snapshot', async () => {
         vi.resetModules();
 

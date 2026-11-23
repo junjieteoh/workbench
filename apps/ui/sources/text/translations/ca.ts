@@ -6620,6 +6620,8 @@ deps: {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Seleccionat.`,
         },
         agentReview: {
+            cachedModels: "Llista desada · actualització no disponible",
+            catalogModels: "Catàleg del proveïdor · consulta en directe no disponible",
             group: "Agents de revisió",
             choose: "Demana una revisió a un agent…",
             none: "Cap coincidència",

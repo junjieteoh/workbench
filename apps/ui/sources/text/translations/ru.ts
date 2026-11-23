@@ -6994,6 +6994,8 @@ export const ru: TranslationStructure = {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Выбрано.`,
         },
         agentReview: {
+            cachedModels: "Сохранённый список моделей · обновление недоступно",
+            catalogModels: "Каталог провайдера · поиск в реальном времени недоступен",
             group: "Агенты для проверки",
             choose: "Попросить агента проверить…",
             none: "Нет совпадений",

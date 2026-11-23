@@ -5937,6 +5937,8 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。已選擇。`,
         },
         agentReview: {
+            cachedModels: "已儲存的模型清單 · 無法即時重新整理",
+            catalogModels: "供應商目錄 · 無法即時查詢",
             group: "審閱代理",
             choose: "請代理審閱…",
             none: "無相符項目",

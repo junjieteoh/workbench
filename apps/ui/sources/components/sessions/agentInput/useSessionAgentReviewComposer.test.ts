@@ -34,11 +34,17 @@ describe('machine-scoped review mentions', () => {
         expect(prefetch).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'machine-a', serverId: 'relay-a' }));
         expect(targets.map(target => target.agentId)).toEqual(['claude']);
         discover.mockResolvedValue({ kind: 'success', value: { availableModels: [{ id: 'model-1', name: 'Test model' }], supportsFreeform: false } });
-        await binding.resolveModels(targets[0]);
+        const selectable = await binding.resolveModels(targets[0]);
+        expect(selectable).toContainEqual({ id: 'model-1', label: 'Test model' });
         expect(discover).toHaveBeenCalledWith(expect.objectContaining({
             machineId: 'machine-a', serverId: 'relay-a', backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
             capabilityParams: expect.objectContaining({ profileId: 'work', cwd: '/project' }),
         }));
+        const value = { availableModels: [{ id: 'retained', name: 'Retained model' }], supportsFreeform: false };
+        discover.mockResolvedValue({ kind: 'success', value, errorUpdatedAt: 12, updatedAt: 10 });
+        expect(await binding.resolveModels(targets[0])).toContainEqual({ id: 'retained', label: 'Retained model', source: 'cached' });
+        discover.mockResolvedValue({ kind: 'success', value, staticFallback: true, errorUpdatedAt: 12 });
+        expect(await binding.resolveModels(targets[0])).toContainEqual({ id: 'retained', label: 'Retained model', source: 'catalog' });
         discover.mockResolvedValue({ kind: 'error' });
         await expect(binding.resolveModels(targets[0])).rejects.toThrow();
         await hook.unmount();

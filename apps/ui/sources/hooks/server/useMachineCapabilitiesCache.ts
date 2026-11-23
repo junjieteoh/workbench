@@ -306,7 +306,9 @@ function requestNeedsRefetchFromState(state: MachineCapabilitiesCacheState, requ
                 : state.status === 'error'
                     ? state.snapshot
                     : undefined;
-    if (!snapshot) return false;
+    // A cold probe has no snapshot to satisfy this caller. Join that probe if
+    // it is identical, or enqueue this request through fetchAndMerge.
+    if (!snapshot) return state.status === 'loading';
 
     const results = snapshot.response.results;
     const requests = Array.isArray(request.requests) ? request.requests : [];
