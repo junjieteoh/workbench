@@ -7283,8 +7283,8 @@ localTailscale: {
     agentReview: {
         cachedModels: "保存済みモデル一覧 · 更新できません",
         catalogModels: "プロバイダーのカタログ · ライブ検索は利用できません",
-        group: "レビュー担当エージェント",
-        choose: "エージェントにレビューを依頼…",
+        group: "エージェント",
+        choose: "エージェントを選択…",
         none: "該当なし",
         unavailable: "この端末から選択肢を取得できませんでした",
         review: "レビュー",

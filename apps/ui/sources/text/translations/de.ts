@@ -6631,8 +6631,8 @@ export const de: TranslationStructure = {
         agentReview: {
             cachedModels: "Gespeicherte Modellliste · Aktualisierung nicht verfügbar",
             catalogModels: "Anbieterkatalog · Live-Abfrage nicht verfügbar",
-            group: "Review-Agenten",
-            choose: "Einen Agenten um eine Prüfung bitten…",
+            group: "Agenten",
+            choose: "Agenten auswählen…",
             none: "Keine Treffer",
             unavailable: "Optionen konnten nicht vom Gerät geladen werden",
             review: "Prüfung",

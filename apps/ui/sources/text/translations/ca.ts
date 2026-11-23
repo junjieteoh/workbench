@@ -6630,8 +6630,8 @@ deps: {
         agentReview: {
             cachedModels: "Llista desada · actualització no disponible",
             catalogModels: "Catàleg del proveïdor · consulta en directe no disponible",
-            group: "Agents de revisió",
-            choose: "Demana una revisió a un agent…",
+            group: "Agents",
+            choose: "Tria un agent…",
             none: "Cap coincidència",
             unavailable: "No s’han pogut carregar les opcions d’aquest equip",
             review: "Revisió",

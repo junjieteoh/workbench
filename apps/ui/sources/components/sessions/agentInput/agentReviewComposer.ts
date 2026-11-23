@@ -12,6 +12,7 @@ export type AgentReviewComposerBinding = Readonly<{
     selection: ComposerAgentReviewSelection | null;
     onSelectionChange(value: ComposerAgentReviewSelection | null): void;
     matchesTargetPrefix(query: string): boolean;
+    peekTargets?(): readonly ComposerAgentReviewTarget[] | null;
     resolveTargets(signal?: AbortSignal, intent?: 'delegate' | 'plan'): Promise<readonly ComposerAgentReviewTarget[]>;
     resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly ComposerAgentReviewModel[]>;
 }>;
@@ -87,8 +88,13 @@ export async function resolveAgentReviewSuggestions(params: {
     }
     const separator = scopedQuery.indexOf('/');
     try {
-        const targets = await binding.resolveTargets(signal);
-        if (signal?.aborted) return [];
+        // The unscoped picker also shows files and sessions. Its discovery deadline
+        // can omit a slow agent section for the lifetime of this query. Offer the
+        // scoped picker immediately on a cold machine; it can await the live catalog.
+        const peek = !query && scope === null ? binding.peekTargets : undefined;
+        const targets = peek ? peek() : await binding.resolveTargets(signal);
+        if (peek && !targets?.length) return [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })];
+        if (!targets || signal?.aborted) return [];
         if (separator === -1) {
             const search = scopedQuery.toLowerCase();
             const matches = targets.filter(target => [target.label, targetQueryId(target)].some(value => {

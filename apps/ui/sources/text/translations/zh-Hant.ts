@@ -5947,8 +5947,8 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         agentReview: {
             cachedModels: "已儲存的模型清單 · 無法即時重新整理",
             catalogModels: "供應商目錄 · 無法即時查詢",
-            group: "審閱代理",
-            choose: "請代理審閱…",
+            group: "代理",
+            choose: "選擇代理…",
             none: "無相符項目",
             unavailable: "無法從這台機器載入選項",
             review: "審閱",

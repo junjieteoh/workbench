@@ -6798,8 +6798,8 @@ export const zhHans: TranslationStructure = {
     agentReview: {
         cachedModels: "已保存的模型列表 · 无法实时刷新",
         catalogModels: "提供商目录 · 无法实时查询",
-        group: "审阅代理",
-        choose: "请代理审阅…",
+        group: "代理",
+        choose: "选择代理…",
         none: "无匹配项",
         unavailable: "无法从这台机器加载选项",
         review: "审阅",

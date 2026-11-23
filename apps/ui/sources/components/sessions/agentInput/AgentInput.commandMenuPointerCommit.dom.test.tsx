@@ -206,7 +206,7 @@ type MountedComposer = Readonly<{
 }>;
 
 /** Mounts the session composer wired exactly as `SessionView` wires it. */
-async function renderSessionComposer(review?: Pick<ReviewBinding, 'matchesTargetPrefix' | 'resolveModels' | 'resolveTargets'>, onSend: (options?: SubmitOptions) => void = () => {}, agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence']): Promise<MountedComposer> {
+async function renderSessionComposer(review?: Omit<ReviewBinding, 'selection' | 'onSelectionChange'>, onSend: (options?: SubmitOptions) => void = () => {}, agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence']): Promise<MountedComposer> {
     function Host() {
         const [value, setValue] = React.useState('');
         const [selection, onSelectionChange] = React.useState<ReviewSelection | null>(null);
@@ -323,6 +323,24 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
             inputTextOverride: text,
             agentSequence: { planner: { target: claude, modelId: 'opus-test', modelLabel: 'Opus' }, successor: expect.objectContaining({ target: gemini, modelId: null }) },
         }));
+    });
+
+    it('opens the agent menu from a cold bare @ while workspace suggestions are already available', async () => {
+        const gemini = { agentId: 'gemini', label: 'Gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' } } as const;
+        let finish!: (targets: typeof gemini[]) => void;
+        const pending = new Promise<typeof gemini[]>(resolve => { finish = resolve; });
+        const resolveTargets = vi.fn(() => pending);
+        searchFilesMock.mockResolvedValue([file('README.md')]);
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: () => false, peekTargets: () => null, resolveTargets, resolveModels: async () => [],
+        });
+        await typeIntoComposer(composer, '@');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:open')).not.toBeNull());
+        expect(findMenuRow('file-README.md')).not.toBeNull();
+        await pressRow(composer, 'agentReview:open');
+        expect(composer.text()).toBe('@agent:');
+        await act(async () => { finish([gemini]); });
+        await vi.waitFor(() => expect(findMenuRow('agentReview:gemini')).not.toBeNull());
     });
 
     it('lists agents at a bare @ and retains the picked model when adding a successor', async () => {

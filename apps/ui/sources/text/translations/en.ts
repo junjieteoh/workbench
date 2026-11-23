@@ -6663,8 +6663,8 @@ export const en = {
         agentReview: {
             cachedModels: "Saved model list · live refresh unavailable",
             catalogModels: "Provider catalog · live lookup unavailable",
-            group: "Review agents",
-            choose: "Ask an agent to review…",
+            group: "Agents",
+            choose: "Choose an agent…",
             none: "No matches",
             unavailable: "Couldn’t load choices from this machine",
             review: "Review",

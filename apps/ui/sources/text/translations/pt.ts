@@ -7133,8 +7133,8 @@ export const pt: TranslationStructure = {
     agentReview: {
         cachedModels: "Lista salva · atualização indisponível",
         catalogModels: "Catálogo do provedor · consulta em tempo real indisponível",
-        group: "Agentes de revisão",
-        choose: "Pedir uma revisão a um agente…",
+        group: "Agentes",
+        choose: "Escolher um agente…",
         none: "Nenhuma correspondência",
         unavailable: "Não foi possível carregar as opções desta máquina",
         review: "Revisão",

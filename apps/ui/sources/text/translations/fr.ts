@@ -6618,8 +6618,8 @@ export const fr: TranslationStructure = {
         agentReview: {
             cachedModels: "Liste enregistrée · actualisation indisponible",
             catalogModels: "Catalogue du fournisseur · recherche en direct indisponible",
-            group: "Agents de relecture",
-            choose: "Demander une relecture à un agent…",
+            group: "Agents",
+            choose: "Choisir un agent…",
             none: "Aucun résultat",
             unavailable: "Impossible de charger les options de cette machine",
             review: "Relecture",

@@ -7021,8 +7021,8 @@ export const pl: TranslationStructure = {
     agentReview: {
         cachedModels: "Zapisana lista modeli · odświeżanie niedostępne",
         catalogModels: "Katalog dostawcy · wyszukiwanie na żywo niedostępne",
-        group: "Agenci recenzujący",
-        choose: "Poproś agenta o recenzję…",
+        group: "Agenci",
+        choose: "Wybierz agenta…",
         none: "Brak wyników",
         unavailable: "Nie udało się wczytać opcji z tego urządzenia",
         review: "Recenzja",
