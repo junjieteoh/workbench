@@ -37,7 +37,7 @@ import { resolveTrustedSessionAttachmentLocalImagePaths } from '@/session/attach
 import { admitSessionUserMessageToPendingQueue } from '@/session/services/admitSessionUserMessage';
 import { resolveSessionMessagePermissionIntent } from '@/session/services/resolveSessionMessagePermissionIntent';
 import { requestInactiveSessionResume } from '@/session/services/requestInactiveSessionResume';
-import { requestSessionStop } from '@/session/services/requestSessionStop';
+import { requestSessionStop, type LocalOwningMachineStop } from '@/session/services/requestSessionStop';
 import { resolveSessionUserMessageRequestedAction } from '@/session/services/resolveSessionUserMessageRequestedAction';
 import { resolveSessionTransportContext } from '@/session/services/resolveSessionTransportContext';
 import {
@@ -115,6 +115,8 @@ import {
  */
 
 export type SessionAgentTransitionCoordinatorDeps = Readonly<{
+  /** Same-daemon deferred request. Recheck exact runner/turn beside the signal. */
+  queuedSource?: LocalOwningMachineStop & Readonly<{ canStopSource: () => boolean }>;
   /** Bounded quiescence window before the stop. Defaults to the session-control stop budget. */
   idleTimeoutMs?: number;
   now?: () => number;
@@ -699,7 +701,10 @@ export async function runSessionAgentTransition(params: Readonly<{
     departureSeqInclusive: readTranscriptHeadSeq(preStopSession),
   });
 
+  const queuedSource = params.deps?.queuedSource;
+  if (queuedSource && !queuedSource.canStopSource()) return effects.rejected('source_not_idle');
   const stop = await requestSessionStop({
+    ...(queuedSource ? { localOwner: queuedSource } : {}),
     credentials: params.credentials,
     idOrPrefix: request.sessionId,
   }).catch(() => null);

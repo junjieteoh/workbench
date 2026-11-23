@@ -533,6 +533,17 @@ describe('runSessionAgentTransition', () => {
       expect(mocks.requestSessionStop).not.toHaveBeenCalled();
     });
 
+    it('preserves a source that began another turn before its deferred stop', async () => {
+      primeHappyPath();
+      const result = await runSessionAgentTransition({
+        credentials, request: request(),
+        deps: { queuedSource: { machineId: 'machine-1', canStopSource: () => false, stop: vi.fn() } },
+      });
+      expect(result).toMatchObject({ type: 'rejected', code: 'source_not_idle' });
+      expect(mocks.requestSessionStop).not.toHaveBeenCalled();
+      expect(mocks.commitSessionAgentTransitionCutover).not.toHaveBeenCalled();
+    });
+
     it('rejects a source that is not strictly idle', async () => {
       primeHappyPath();
       mocks.waitForSessionIdle.mockResolvedValue({ ok: false, code: 'timeout' });

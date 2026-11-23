@@ -3,6 +3,7 @@ import { BackendTargetRefSchema, matchesBackendTargetAgentId } from './backendTa
 
 import { AcpConfigOptionOverridesV1Schema } from './sessionMetadata/metadataOverridesV1.js';
 import { isSessionAgentTransitionDividerLocalId } from './sessionAgentTransitionDivider.js';
+import { SessionTurnIdentifierV1Schema } from './sessions/turns/sessionTurnV1.js';
 import { PendingLocalIdSchema } from './sessionMessages/pendingLocalId.js';
 import { SessionUserMessageSendRequestSchema } from './sessionUserMessageRpc.js';
 import { lazySchema } from './lazySchema.js';
@@ -139,6 +140,40 @@ export const SessionAgentTransitionRequestV1Schema = lazySchema(() => z
     }
   }));
 export type SessionAgentTransitionRequestV1 = z.infer<typeof SessionAgentTransitionRequestV1Schema>;
+
+// These commands share the session-write authorization of the immediate transition.
+// Their disjoint envelopes ensure a worker without queue support cannot switch early.
+export const SessionAgentTransitionQueueRequestV1Schema = lazySchema(() => z.discriminatedUnion('action', [
+  z.strictObject({
+    action: z.literal('schedule'),
+    sessionId: SessionTurnIdentifierV1Schema,
+    turnId: SessionTurnIdentifierV1Schema,
+    transition: SessionAgentTransitionRequestV1Schema,
+  }),
+  z.strictObject({ action: z.literal('cancel'), sessionId: SessionTurnIdentifierV1Schema, localId: PendingLocalIdSchema }),
+  z.strictObject({ action: z.literal('get'), sessionId: SessionTurnIdentifierV1Schema }),
+]).superRefine((command, ctx) => {
+  if (command.action === 'schedule' && command.sessionId !== command.transition.sessionId) {
+    ctx.addIssue({ code: 'custom', path: ['transition', 'sessionId'], message: 'Scheduled and authorized sessions must match.' });
+  }
+}));
+export type SessionAgentTransitionQueueRequestV1 = z.infer<typeof SessionAgentTransitionQueueRequestV1Schema>;
+
+export const SessionAgentTransitionQueueResultV1Schema = lazySchema(() => z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('empty') }),
+  z.strictObject({
+    status: z.literal('rejected'),
+    reason: z.enum(['invalid_request', 'unsupported', 'turn_changed', 'already_queued', 'forbidden']),
+  }),
+  z.strictObject({
+    status: z.enum(['queued', 'dispatching', 'completed', 'failed', 'cancelled']),
+    turnId: SessionTurnIdentifierV1Schema,
+    localId: PendingLocalIdSchema,
+    target: SessionAgentTransitionSelectionV1Schema,
+  }),
+]));
+export type SessionAgentTransitionQueueResultV1 = z.infer<typeof SessionAgentTransitionQueueResultV1Schema>;
+
 
 /* ------------------------------------------------------------------------- *
  * Result — partitioned so every code is reachable from exactly one arm
