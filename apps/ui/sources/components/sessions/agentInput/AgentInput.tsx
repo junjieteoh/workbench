@@ -48,6 +48,10 @@ import { useComposerKeepsFocusAfterSend } from './hooks/useComposerKeepsFocusAft
 import type { NewSessionAfterSendMode } from '@/sync/domains/settings/registry/account/accountSessionCreationSettingDefinitions';
 import { ComposerHistorySwipeArea, type ComposerHistoryDirection } from './ComposerHistorySwipeArea';
 import { AgentInputKeepKeyboardToggle } from './components/AgentInputKeepKeyboardToggle';
+import { ComposerSequencePreview } from './sequence/ComposerSequencePreview';
+import { useComposerAgentSequence } from './sequence/useComposerAgentSequence';
+import { parseComposerAgentSequence } from './sequence/composerAgentSequence';
+import type { ComposerAgentReviewTarget } from './agentReviewComposer';
 import { applyAgentReviewChoice, findAgentReviewToken, removeAgentReviewToken, type AgentReviewComposerBinding } from './agentReviewComposer';
 import { buildAgentInputSendMenuItems } from './agentInputSendOptions';
 import { Theme } from '@/theme';
@@ -335,6 +339,11 @@ interface AgentInputProps {
     onActiveStatusBadgeKeyChange?: (key: string | null) => void;
     /** Eligible suggestion kinds for this composer host. Trigger characters follow from the kinds (INV-1). */
     agentReview?: AgentReviewComposerBinding;
+    agentSequence?: Readonly<{
+        currentTargetKey: string;
+        successorTargets: readonly ComposerAgentReviewTarget[];
+        scopeKey?: string;
+    }>;
     autocompleteKinds: readonly ComposerSuggestionKindId[];
     /** Receives an abort signal for the query it is resolving; a superseded query is never applied (D-15). */
     autocompleteSuggestions: ActiveSuggestionsHandler;
@@ -1402,7 +1411,19 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         sessionId: props.sessionId ?? null,
     });
 
-    const sendActionDisabled = Boolean(props.disabled || props.isSendDisabled || props.isSending);
+    const sequence = useComposerAgentSequence({
+        text: props.agentSequence ? props.value : '',
+        binding: props.agentReview,
+        successorTargets: props.agentSequence?.successorTargets,
+        currentTargetKey: props.agentSequence?.currentTargetKey,
+        currentModelId: props.modelMode,
+        scopeKey: props.agentSequence?.scopeKey ?? props.sessionId,
+    });
+    const hasSequence = sequence.parsed !== null;
+    React.useEffect(() => {
+        if (hasSequence) props.onAgentPickerIntent?.();
+    }, [hasSequence, props.onAgentPickerIntent]);
+    const sendActionDisabled = Boolean(props.disabled || props.isSendDisabled || props.isSending || (hasSequence && !sequence.ready));
     const inputRef = React.useRef<MultiTextInputHandle>(null);
     const hasHardwareKeyboard = useHasHardwareKeyboard();
     const keepFocusAfterSend = useComposerKeepsFocusAfterSend();
@@ -1672,6 +1693,18 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             text: liveInputText,
         });
         const hasStructuredInputMeta = Object.keys(structuredInputMetaOverrides).length > 0;
+        if (props.agentSequence && parseComposerAgentSequence(liveInputText)) {
+            // A flush may produce a newer draft than the last visible preview. Never run
+            // a sequence until its exact two actors and assignments were shown.
+            if (liveInputText === props.value && sequence.ready) {
+                props.onSend({
+                    inputTextOverride: liveInputText,
+                    agentSequence: sequence.ready,
+                    ...(hasStructuredInputMeta ? { structuredInputMetaOverrides } : {}),
+                });
+            }
+            return;
+        }
         const review = props.agentReview?.selection;
         const agentReviewSelection = review && findAgentReviewToken(liveInputText, review.target) >= 0 ? review : null;
         const shouldCarryLiveInputText = !props.sessionId || liveInputText !== props.value;
@@ -1690,6 +1723,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         );
     }, [
         keepFocusAfterSend,
+        props.agentSequence,
+        sequence.ready,
         props.agentReview,
         messageHistory,
         props.onSend,
@@ -1792,7 +1827,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }, [enterToSendEnabled, isInputFocused, props.disabled]);
 
     const activeWord = activeWordState?.activeWord ?? null;
-    const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled ? activeWord : null;
+    const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled && !hasSequence ? activeWord : null;
     // Selection follows candidate identity, not an index (INV-6) — the hook owns that.
     const [resolvedSuggestions, selected, moveUp, moveDown, resolvedSuggestionQuery] = useActiveSuggestions(activeSuggestionQuery, props.autocompleteSuggestions, { wrapAround: true });
 
@@ -3209,7 +3244,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         testID={props.sessionId ? AGENT_INPUT_TEST_IDS.sessionSend : AGENT_INPUT_TEST_IDS.newSessionSend}
                         sessionId={props.sessionId}
                         submitAccessibilityLabel={props.submitAccessibilityLabel}
-                        disabled={Boolean(props.disabled || props.isSendDisabled || props.isSending)}
+                        disabled={sendActionDisabled}
                         isSending={props.isSending}
                         isStopping={isAborting}
                         hasSendableContent={hasSendableContent}
@@ -3303,7 +3338,29 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 updateLayoutHeight(setActionFooterHeightPx, event.nativeEvent.layout.height);
             }}
         >
-            {props.agentReview?.selection ? (
+            {sequence.steps ? (
+                <ComposerSequencePreview
+                    steps={sequence.steps}
+                    options={[]}
+                    optionsByStep={sequence.optionsByStep}
+                    status={sequence.status === 'loading' ? t('agentInput.sequence.loading')
+                        : sequence.status === 'unavailable' ? t('agentInput.sequence.unavailable')
+                        : sequence.status === 'unknown' || sequence.status === 'ambiguous' ? t('agentInput.sequence.unknown')
+                        : undefined}
+                    disabled={Boolean(props.disabled || props.isSending)}
+                    onAgentChange={(index, key) => {
+                        const live = inputRef.current?.getText?.() ?? inputStateRef.current.text;
+                        if (live !== props.value) return;
+                        const next = sequence.replace(index, key);
+                        if (!next) return;
+                        if (index === 0 && props.agentReview?.selection) props.agentReview.onSelectionChange(null);
+                        if (next === live) return;
+                        const caret = { start: next.length, end: next.length };
+                        inputRef.current?.setTextAndSelection(next, caret);
+                    }}
+                />
+            ) : null}
+            {!hasSequence && props.agentReview?.selection ? (
                 <View style={{ alignSelf: 'flex-start' }}>
                     <RoundButton size="small" testID="agent-input-reviewer" disabled={props.disabled}
                         title={t('agentInput.agentReview.review') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel + ' ×'}

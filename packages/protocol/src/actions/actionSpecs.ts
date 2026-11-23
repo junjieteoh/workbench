@@ -1,3 +1,4 @@
+import { SessionAgentSequenceContinuationV1Schema } from '../sessionAgentSequence.js';
 import { z } from 'zod';
 
 import { ActionIdSchema, type ActionId } from './actionIds.js';
@@ -465,6 +466,7 @@ const IntentStartCommonSchema = lazySchema(() => z.object({
 }).passthrough());
 
 const PlanStartInputSchema = lazySchema(() => IntentStartCommonSchema.extend({
+  sequence: SessionAgentSequenceContinuationV1Schema.optional(),
   permissionMode: ExecutionRunActionPermissionModeSchema.default('read_only'),
   retentionPolicy: z.enum(['ephemeral', 'resumable']).default('ephemeral'),
   runClass: z.enum(['bounded', 'long_lived']).default('bounded'),

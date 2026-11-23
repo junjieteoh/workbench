@@ -68,6 +68,14 @@ describe('startSessionAgentReview', () => {
         expect(execute.mock.calls[0]![1]).not.toHaveProperty('modelId');
     });
 
+    it('can seed a planner with a user brief before the first agent reply', () => {
+        getState.mockReturnValue({ settings: {}, sessionMessages: { source: { messages: [
+            { ...agent('Design the launch report.', 1), kind: 'user-text' },
+        ] } } });
+        expect(captureSessionAgentReviewContext('source')).toBe('');
+        expect(captureSessionAgentReviewContext('source', { includeUserOnly: true })).toBe('User: Design the launch report.');
+    });
+
     it('requires a visible lead draft, bounds the recent excerpt, and forwards no other session when missing', async () => {
         expect(captureSessionAgentReviewContext('missing')).toBe('');
         getState.mockReturnValue({ settings: { sessionReplayMaxSeedChars: 1024 }, sessionMessages: { source: {

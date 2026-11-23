@@ -7260,6 +7260,14 @@ localTailscale: {
   },
 
   agentInput: {
+      sequence: {
+          planOnly: "計画のみ",
+          takesOver: "引き継ぎ",
+          loading: "エージェントを読み込み中…",
+          unknown: "各ステップのエージェントを選択してください。",
+          unavailable: "これらのエージェント間では引き継ぎできません。",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}、${agent}。エージェントを変更。`,
+      },
       keepKeyboard: { label: "送信後もキーボードを開いたままにする" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} / ${total}`,
       sendOptions: {

@@ -6980,6 +6980,14 @@ export const es: TranslationStructure = {
   },
 
   agentInput: {
+        sequence: {
+            planOnly: "Solo planifica",
+            takesOver: "Toma el relevo",
+            loading: "Cargando agentes…",
+            unknown: "Elige un agente para cada paso.",
+            unavailable: "Estos agentes no están disponibles para el relevo.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Cambiar de agente.`,
+        },
       keepKeyboard: { label: "Mantener el teclado abierto al enviar" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} de ${total}`,
       sendOptions: {

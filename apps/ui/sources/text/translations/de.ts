@@ -6606,6 +6606,14 @@ export const de: TranslationStructure = {
     },
 
     agentInput: {
+        sequence: {
+            planOnly: "Plant nur",
+            takesOver: "Übernimmt",
+            loading: "Agenten werden geladen…",
+            unknown: "Wähle für jeden Schritt einen Agenten.",
+            unavailable: "Diese Agenten stehen für eine Übergabe nicht zur Verfügung.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Agent wechseln.`,
+        },
         keepKeyboard: { label: "Tastatur nach dem Senden geöffnet lassen" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} von ${total}`,
         sendOptions: {

@@ -6775,6 +6775,14 @@ export const zhHans: TranslationStructure = {
   },
 
   agentInput: {
+      sequence: {
+          planOnly: "仅规划",
+          takesOver: "接手任务",
+          loading: "正在加载智能体…",
+          unknown: "请为每个步骤选择一个智能体。",
+          unavailable: "这些智能体目前无法交接任务。",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}，${agent}。更改智能体。`,
+      },
       keepKeyboard: { label: "发送后保持键盘打开" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} / ${total}`,
       sendOptions: {

@@ -6593,6 +6593,14 @@ export const fr: TranslationStructure = {
     },
 
     agentInput: {
+        sequence: {
+            planOnly: "Planifie uniquement",
+            takesOver: "Prend le relais",
+            loading: "Chargement des agents…",
+            unknown: "Choisissez un agent pour chaque étape.",
+            unavailable: "Ces agents ne peuvent pas se passer le relais.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Changer d’agent.`,
+        },
         keepKeyboard: { label: "Garder le clavier ouvert après l’envoi" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} sur ${total}`,
         sendOptions: {

@@ -7,6 +7,9 @@ import { selectCanonicalOutboundHandoffForLocalId } from '@/sync/domains/session
 
 import { AgentContentView } from '@/components/sessions/transcript/AgentContentView';
 import { useSessionAgentReviewComposer } from '@/components/sessions/agentInput/useSessionAgentReviewComposer';
+import { parseComposerAgentSequence } from '@/components/sessions/agentInput/sequence/composerAgentSequence';
+import { captureSessionAgentReviewContext } from '@/sync/ops/startSessionAgentReview';
+import { startSessionAgentSequence } from '@/sync/ops/startSessionAgentSequence';
 import { useSessionAgentReviewDraft } from '@/components/sessions/agentInput/useSessionAgentReviewDraft';
 import { getReviewAssignment } from '@/components/sessions/agentInput/sessionAgentReviewDraft';
 import { AgentInput, type AgentInputSendOptions } from '@/components/sessions/agentInput';
@@ -5290,6 +5293,16 @@ function SessionViewLoaded({
         selection: reviewDraft.mention?.selection ?? null,
         onSelectionChange: reviewDraft.select,
     });
+    const sequenceContext = React.useMemo(() => ({
+        currentTargetKey: sessionAgentCurrentTargetKey,
+        scopeKey: JSON.stringify([activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration, agentContinuationMachine.daemonGeneration]),
+        successorTargets: inSessionAgentPicker.eligibleSequenceSuccessors.map(entry => ({
+            targetKey: entry.targetKey, backendTarget: entry.target, agentId: entry.providerAgentId, label: entry.title,
+        })),
+    }), [sessionAgentCurrentTargetKey, activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration,
+        agentContinuationMachine.daemonGeneration, inSessionAgentPicker.eligibleSequenceSuccessors]);
+    const sequenceAttempt = React.useRef<{ key: string; request: Parameters<typeof startSessionAgentSequence>[0] } | null>(null);
+    const sendingSequence = React.useRef(false);
     const sendingReview = React.useRef(false);
     const handleAutocompleteSuggestions = React.useCallback(
         // Resolved per query, not per render: the machine target is imperative store state,
@@ -5330,6 +5343,61 @@ function SessionViewLoaded({
         }
 
         const composerMessage = sendOptions?.inputTextOverride ?? composerTextStore.getPrompt();
+        const typedSequence = parseComposerAgentSequence(composerMessage);
+        if (sendOptions?.agentSequence || (typedSequence && !pendingMessageEdit && !recipientState.recipient)) {
+            const selected = sendOptions?.agentSequence;
+            if (sendingSequence.current) return;
+            const selectedMachine = agentContinuationMachine.machineId;
+            if (!selected || !typedSequence || !canAddressReviewer || !selectedMachine || activeSourceTurnId
+                || agentContinuationSource.storageKind === 'direct' || agentContinuationSource.machinePresence !== 'online'
+                || !sequenceContext.successorTargets.some(target => target.targetKey === buildBackendTargetKey(selected.successor.target.backendTarget))) {
+                Modal.alert(t('common.error'), t('agentInput.sequence.unavailable'));
+                return;
+            }
+            if (attachmentDrafts.length || hasIncludedReviewCommentDrafts || sendOptions?.structuredInputMetaOverrides) {
+                Modal.alert(t('common.error'), t('session.participants.unsupportedAttachmentsOrReviewComments'));
+                return;
+            }
+            const snapshot = captureDraftForOutboundHandoff?.() ?? { sessionId, text: composerMessage };
+            const key = JSON.stringify([activeServerAccountScopeKey, sessionId, selectedMachine, sessionAgentCurrentTargetKey,
+                composerMessage, selected.planner.target.backendTarget, selected.planner.modelId, selected.successor.target.backendTarget, selected.successor.modelId]);
+            if (sequenceAttempt.current?.key !== key) {
+                const stage = (choice: typeof selected.planner, instructions: string) => ({
+                    backendTarget: choice.target.backendTarget, modelId: choice.modelId, instructions,
+                });
+                sequenceAttempt.current = { key, request: {
+                    sessionId, machineId: selectedMachine, serverId: agentContinuationMachine.serverId,
+                    expectedCurrentAgentId: liveComposerState.agentId,
+                    expectedCurrentBackendTarget: sessionActionDefaultBackend?.backendTarget ?? { kind: 'builtInAgent', agentId: liveComposerState.agentId },
+                    startRequestId: randomUUID(), context: captureSessionAgentReviewContext(sessionId, { includeUserOnly: true }),
+                    planner: stage(selected.planner, typedSequence.stages[0].instructions),
+                    successor: stage(selected.successor, typedSequence.stages[1].instructions),
+                } };
+            }
+            const attempt = sequenceAttempt.current;
+            sendingSequence.current = true;
+            setIsComposerSendPending(true);
+            fireAndForget((async () => {
+                try {
+                    const result = await startSessionAgentSequence(attempt.request);
+                    if (!result.ok) {
+                        Modal.alert(t('common.error'), result.error);
+                        return;
+                    }
+                    if (clearDraftForSessionIfCurrentValueMatches(snapshot)) {
+                        if (reviewDraft.mention && reviewDraft.isCurrent(reviewDraft.mention)) reviewDraft.select(null);
+                        inputComposerClearTransientStateRef.current();
+                    }
+                    if (sequenceAttempt.current === attempt) sequenceAttempt.current = null;
+                } catch (error) {
+                    Modal.alert(t('common.error'), error instanceof Error ? error.message : t('errors.failedToSendMessage'));
+                } finally {
+                    sendingSequence.current = false;
+                    setIsComposerSendPending(false);
+                }
+            })(), { tag: 'SessionView.startAgentSequence' });
+            return;
+        }
         if (reviewDraft.mention || sendOptions?.agentReviewSelection) {
             const address = reviewDraft.mention;
             if (sendingReview.current) return;
@@ -6533,6 +6601,7 @@ function SessionViewLoaded({
                 armedContinuationTarget={armedContinuationTarget}
                 queueHandoffAfterTurnId={queueHandoffAfterTurnId}
                 agentReview={agentReviewComposer}
+                agentSequence={pendingMessageEdit || recipientState.recipient ? undefined : sequenceContext}
                 composeAgentPickerOptions={inSessionAgentPicker.composeAgentPickerOptions}
                 onAgentPickerIntent={inSessionAgentPicker.onAgentPickerIntent}
                 onAgentPickerVisibilityChange={inSessionAgentPicker.onAgentPickerVisibilityChange}

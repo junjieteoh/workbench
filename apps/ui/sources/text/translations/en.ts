@@ -6638,6 +6638,14 @@ export const en = {
     },
 
     agentInput: {
+        sequence: {
+            planOnly: "Plan only",
+            takesOver: "Takes over",
+            loading: "Loading agents…",
+            unknown: "Choose an agent for each step.",
+            unavailable: "These agents are unavailable for a handoff.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Change agent.`,
+        },
         keepKeyboard: { label: "Keep keyboard open after sending" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} of ${total}`,
         sendOptions: {

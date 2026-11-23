@@ -41,6 +41,28 @@ function createDeps(overrides: Partial<ActionExecutorDeps> = {}): ActionExecutor
 }
 
 describe('createActionExecutor model/effort run-option parity', () => {
+  it('dispatches a two-step plan through its native sequence owner or refuses the whole request', async () => {
+    const executionRunStart = vi.fn();
+    const receipt = { runId: 'r', callId: 'c', sidechainId: 's' };
+    const sessionAgentSequenceStart = vi.fn(async () => ({ status: 'started' as const, ...receipt }));
+    const target = { kind: 'builtInAgent' as const, agentId: 'claude' };
+    const sequence = {
+      machineId: 'm', localId: 'sequence-1', expectedCurrentBackendTarget: target,
+      successor: { backendTarget: target, modelId: 'requested-executor', instructions: 'Implement the plan' },
+    };
+    const args = { sessionId: 's', backendTargetKeys: ['agent:gemini'], instructions: 'Plan it', modelId: 'requested-planner', sequence };
+    const scope = { surface: 'ui_button' as const, serverId: 'private', defaultSessionId: 's' };
+    const absent = createActionExecutor(createDeps({ executionRunStart }));
+    expect((await absent.execute('subagents.plan.start', args, scope)).ok).toBe(false);
+    const ready = createActionExecutor(createDeps({ executionRunStart, sessionAgentSequenceStart }));
+    expect((await ready.execute('subagents.plan.start', args, scope)).ok).toBe(true);
+    expect(sessionAgentSequenceStart).toHaveBeenCalledExactlyOnceWith('m', {
+      action: 'sequence', sessionId: 's', localId: 'sequence-1', expectedCurrentBackendTarget: target,
+      planner: { backendTarget: { kind: 'builtInAgent', agentId: 'gemini' }, modelId: 'requested-planner', instructions: 'Plan it' },
+      successor: sequence.successor,
+    }, { serverId: 'private' });
+    expect(executionRunStart).not.toHaveBeenCalled();
+  });
   it.each([true, false])('forwards an explicit delegate completion notification choice (%s) to its own target', async (notifyParentOnCompletion) => {
     const executionRunStart = vi.fn(async () => ({ runId: 'r', callId: 'c', sidechainId: 'c' }));
     const executor = createActionExecutor(createDeps({ executionRunStart }));

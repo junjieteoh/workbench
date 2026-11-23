@@ -1,3 +1,4 @@
+import { SessionAgentSequenceContinuationV1Schema, type SessionAgentSequenceRequestV1, type SessionAgentSequenceResultV1 } from '../sessionAgentSequence.js';
 import {
   findActionInputFieldHint,
   filterResolvedActionOptions,
@@ -202,6 +203,7 @@ type SessionStopActionDependencyResult = Readonly<{
 
 export type ActionExecutorDeps = Readonly<{
   // Execution runs (session-scoped RPC)
+  sessionAgentSequenceStart?: (machineId: string, request: SessionAgentSequenceRequestV1, opts?: Readonly<{ serverId?: string | null }>) => Promise<SessionAgentSequenceResultV1>;
   executionRunStart: (sessionId: string, request: any, opts?: Readonly<{ serverId?: string | null }>) => Promise<unknown>;
   executionRunList: (sessionId: string, request: any, opts?: Readonly<{ serverId?: string | null }>) => Promise<unknown>;
   executionRunGet: (sessionId: string, request: any, opts?: Readonly<{ serverId?: string | null }>) => Promise<unknown>;
@@ -1759,6 +1761,24 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
           ...intentInput
         } = parsed.data as any;
 
+        if (intent === 'plan' && intentInput.sequence !== undefined) {
+          const sequence = SessionAgentSequenceContinuationV1Schema.parse(intentInput.sequence);
+          if (!deps.sessionAgentSequenceStart) return { ok: false, errorCode: 'unsupported_action', error: 'unsupported_action:session_agent_sequence' };
+          if (backendTargetKeys.length !== 1 || permissionMode !== 'read_only' || intentInput.runClass !== 'bounded'
+              || intentInput.ioMode !== 'request_response' || intentInput.retentionPolicy !== 'ephemeral'
+              || intentInput.connectedServices !== undefined || intentInput.connectedServicesByBackendTargetKey !== undefined
+              || runOptions.sessionConfigOptionOverrides || _waitForCompletion || notifyParentOnCompletion) {
+            return { ok: false, errorCode: 'invalid_parameters', error: 'invalid_parameters' };
+          }
+          const key = backendTargetKeys[0]!;
+          const result = await deps.sessionAgentSequenceStart(sequence.machineId, {
+            action: 'sequence', localId: sequence.localId, sessionId, expectedCurrentBackendTarget: sequence.expectedCurrentBackendTarget,
+            planner: { backendTarget: parseBackendTargetKey(key), modelId: runOptions.modelId ?? null, instructions },
+            successor: sequence.successor,
+          }, opts);
+          if (result.status === 'rejected') return { ok: false, errorCode: 'sequence_' + result.reason, error: result.reason };
+          return { ok: true, result: { intent, sessionId, results: [{ key, ok: true, result }] } };
+        }
         const results = await fanoutStarts({
           keys: backendTargetKeys,
           startOne: async (backendTargetKey) => {

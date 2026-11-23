@@ -44,6 +44,8 @@ const featureEnabledState = vi.hoisted(() => ({
     reviewComments: false,
     executionRuns: false,
 }));
+const sequenceStart = vi.hoisted(() => vi.fn());
+vi.mock('@/sync/ops/startSessionAgentSequence', () => ({ startSessionAgentSequence: sequenceStart }));
 const reviewStart = vi.hoisted(() => vi.fn());
 vi.mock('@/sync/ops/startSessionAgentReview', () => ({
     captureSessionAgentReviewContext: () => 'Lead: the actual draft',
@@ -392,6 +394,7 @@ vi.mock('@/sync/ops/actions/defaultActionExecutor', () => ({
 
 vi.mock('@/components/sessions/agentPicker/useInSessionAgentPickerControls', () => ({
     useInSessionAgentPickerControls: () => ({
+        eligibleSequenceSuccessors: [{ targetKey: 'agent:gemini', target: { kind: 'builtInAgent', agentId: 'gemini' }, providerAgentId: 'gemini', title: 'Gemini' }],
         composeAgentPickerOptions: (options: unknown) => options,
         agentPickerSelectedOptionId: null,
         armedContinuation: armedContinuationState.intent,
@@ -2182,6 +2185,35 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             armedContinuationState.submission = null;
             armedContinuationState.submissionIntent = null;
         };
+
+        it('submits the exact preview to the worker once and retains the retry identity and draft on failure', async () => {
+            sessionState.session.active = true;
+            sessionState.session.presence = 'online';
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            featureEnabledState.executionRuns = true;
+            sequenceStart.mockReset().mockResolvedValueOnce({ ok: false, error: 'Unavailable' }).mockResolvedValue({ ok: true });
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            try {
+                const input = () => findTestInstanceByTypeWithProps(screen.tree!, 'AgentInput', {})!;
+                const text = '@opus plan first then @gemini take over';
+                const stage = (agentId: string, modelId: string | null) => ({ target: { agentId, label: agentId, backendTarget: { kind: 'builtInAgent', agentId } }, modelId, modelLabel: modelId ?? agentId });
+                const submit = () => invokeTestInstanceHandler(input(), 'onSend', { inputTextOverride: text, agentSequence: { planner: stage('claude','opus'), successor: stage('gemini', null) } }, 'AgentInput');
+                await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', text, 'AgentInput'); });
+                await act(async () => { submit(); submit(); await Promise.all(pendingFireAndForget); });
+                expect(sequenceStart).toHaveBeenCalledTimes(1);
+                expect(sequenceStart).toHaveBeenCalledWith(expect.objectContaining({
+                    sessionId: 's1', context: 'Lead: the actual draft', startRequestId: expect.any(String),
+                    planner: expect.objectContaining({ modelId: 'opus', instructions: 'plan first' }),
+                    successor: expect.objectContaining({ modelId: null, instructions: 'take over' }),
+                }));
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe(text);
+                await act(async () => { submit(); await Promise.all(pendingFireAndForget); });
+                expect(sequenceStart.mock.calls[0]).toEqual(sequenceStart.mock.calls[1]);
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('');
+                expect(reviewStart).not.toHaveBeenCalled();
+            } finally { await screen.unmount(); }
+        });
 
         it('addresses a review to the selected backend and keeps the lead and unsent draft through admission', async () => {
             sessionState.session.active = true;

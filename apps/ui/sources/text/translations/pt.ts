@@ -7110,6 +7110,14 @@ export const pt: TranslationStructure = {
   },
 
   agentInput: {
+      sequence: {
+          planOnly: "Só planeja",
+          takesOver: "Assume a tarefa",
+          loading: "Carregando agentes…",
+          unknown: "Escolha um agente para cada etapa.",
+          unavailable: "Esses agentes não estão disponíveis para transferir a tarefa.",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Alterar agente.`,
+      },
       keepKeyboard: { label: "Manter o teclado aberto ao enviar" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} de ${total}`,
       sendOptions: {

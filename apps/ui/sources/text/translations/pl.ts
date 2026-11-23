@@ -6998,6 +6998,14 @@ export const pl: TranslationStructure = {
   },
 
   agentInput: {
+      sequence: {
+          planOnly: "Tylko planuje",
+          takesOver: "Przejmuje",
+          loading: "Ładowanie agentów…",
+          unknown: "Wybierz agenta dla każdego kroku.",
+          unavailable: "Ci agenci nie mogą przekazać sobie zadania.",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Zmień agenta.`,
+      },
       keepKeyboard: { label: "Nie zamykaj klawiatury po wysłaniu" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} z ${total}`,
       sendOptions: {

@@ -24,6 +24,9 @@ import {
   PendingFirstInputV1Schema,
   RestartAllSessionRunnersRequestV1Schema,
   RestartSessionRunnerRequestV1Schema,
+  SessionAgentSequenceRequestV1Schema,
+  type SessionAgentSequenceRequestV1,
+  type SessionAgentSequenceResultV1,
   SessionAgentTransitionRequestV1Schema,
   SessionAgentTransitionQueueRequestV1Schema,
   type SessionAgentTransitionQueueRequestV1,
@@ -244,6 +247,7 @@ function normalizeMachineStopSessionResult(result: MachineStopSessionHandlerResu
 }
 
 export type MachineRpcHandlers = {
+  startAgentSequence?: (command: SessionAgentSequenceRequestV1) => Promise<SessionAgentSequenceResultV1>;
   queuedAgentTransition?: (command: SessionAgentTransitionQueueRequestV1) => SessionAgentTransitionQueueResultV1;
   spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
   spawnSessionForHandoff?: (
@@ -2206,6 +2210,11 @@ export function registerMachineRpcHandlers(params: Readonly<{
     // owner rather than as literals, so this handler cannot drift into naming
     // an arm the coordinator's effect stages forbid.
     if (raw && typeof raw === 'object' && 'action' in raw) {
+      if (raw.action === 'sequence') {
+        const command = SessionAgentSequenceRequestV1Schema.safeParse(raw);
+        if (!command.success) return { status: 'rejected', reason: 'invalid_request' };
+        return handlers.startAgentSequence?.(command.data) ?? { status: 'rejected', reason: 'unsupported' };
+      }
       const command = SessionAgentTransitionQueueRequestV1Schema.safeParse(raw);
       if (!command.success) return { status: 'rejected', reason: 'invalid_request' };
       return handlers.queuedAgentTransition?.(command.data) ?? { status: 'rejected', reason: 'unsupported' };

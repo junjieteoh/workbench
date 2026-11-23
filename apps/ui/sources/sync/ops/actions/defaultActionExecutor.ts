@@ -25,6 +25,7 @@ import {
     sessionStopWithServerScope,
     sessionRespondToPermission,
 } from '@/sync/ops/sessions';
+import { sessionAgentSequenceOnMachine } from '@/sync/ops/sessionAgentTransition';
 import { delegateSessionHandoffToSourceDaemon } from '@/sync/ops/delegatedSessionHandoff';
 import { sessionRpcWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedSessionRpc';
 import { sendSessionMessageWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedSessionSendMessage';
@@ -129,6 +130,7 @@ export function createDefaultActionExecutor(opts?: Readonly<{
         surface: ctx.surface ?? null,
       }),
     executionRunStart: sessionExecutionRunStart,
+    sessionAgentSequenceStart: sessionAgentSequenceOnMachine,
     executionRunList: sessionExecutionRunList,
     executionRunGet: sessionExecutionRunGet,
     executionRunSend: sessionExecutionRunSend,

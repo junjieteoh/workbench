@@ -657,6 +657,7 @@ function augmentCliCapabilityWithProbeModels(cap: Capability, agentId: AgentCata
 
 type CliCapabilitiesOptions = Readonly<{
     hasSessionAgentTransition?: () => boolean;
+    hasSessionAgentSequence?: () => boolean;
 }>;
 
 export async function createCliCapabilitiesService(options?: CliCapabilitiesOptions): Promise<ReturnType<typeof createCapabilitiesService>> {
@@ -683,7 +684,10 @@ export async function createCliCapabilitiesService(options?: CliCapabilitiesOpti
         descriptor: { id: 'tool.sessionAgentTransition', kind: 'tool', title: 'Agent transitions' },
         // The machine process installs its transition handler after registering
         // shared capabilities. Check the actual owner at detection time.
-        detect: async () => ({ supportsInputPermissionIntent: hasSessionAgentTransition() }),
+        detect: async () => ({
+            supportsInputPermissionIntent: hasSessionAgentTransition(),
+            ...(options?.hasSessionAgentSequence ? { supportsAgentSequence: options.hasSessionAgentSequence() } : {}),
+        }),
     }] : [];
 
     return createCapabilitiesService({

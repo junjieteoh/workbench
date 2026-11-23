@@ -32,13 +32,13 @@ export function useSessionAgentReviewComposer(params: Readonly<{
     const matchesTargetPrefix = React.useCallback((query: string) => !!query && entries.some(entry =>
         [entry.title, entry.builtInAgentId ?? entry.targetKey].some(value => value.toLowerCase().startsWith(query.toLowerCase()))
     ), [entries]);
-    const resolveTargets = React.useCallback(async (signal?: AbortSignal) => {
+    const resolveTargets = React.useCallback(async (signal?: AbortSignal, intent: 'delegate' | 'plan' = 'delegate') => {
         if (!machineId || signal?.aborted) return [];
         await prefetchMachineCapabilitiesIfStale({ machineId, serverId, staleMs: 60_000, request: { requests: [{ id: 'tool.executionRuns' }] } });
         const backends = extractExecutionRunsBackendsFromMachineCapabilitiesState(getMachineCapabilitiesCacheState(machineId, serverId));
         if (!backends) throw new Error('Review capabilities unavailable');
         // A conversational review uses a bounded, read-only delegate. The review intent is for diffs.
-        const available = new Set(resolveExecutionRunAvailableBackends(backends, 'delegate'));
+        const available = new Set(resolveExecutionRunAvailableBackends(backends, intent));
         return entries.filter(entry => available.has(entry.targetKey) || available.has(entry.providerAgentId))
             .map(entry => ({ agentId: entry.providerAgentId, backendTarget: entry.target, label: entry.title }));
     }, [machineId, serverId, entries]);

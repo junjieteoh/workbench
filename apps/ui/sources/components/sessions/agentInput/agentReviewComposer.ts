@@ -12,7 +12,7 @@ export type AgentReviewComposerBinding = Readonly<{
     selection: ComposerAgentReviewSelection | null;
     onSelectionChange(value: ComposerAgentReviewSelection | null): void;
     matchesTargetPrefix(query: string): boolean;
-    resolveTargets(signal?: AbortSignal): Promise<readonly ComposerAgentReviewTarget[]>;
+    resolveTargets(signal?: AbortSignal, intent?: 'delegate' | 'plan'): Promise<readonly ComposerAgentReviewTarget[]>;
     resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly ComposerAgentReviewModel[]>;
 }>;
 export type AgentReviewSuggestionAction =
@@ -80,7 +80,7 @@ export async function resolveAgentReviewSuggestions(params: {
     const row = (key: string, text: string, label: string, agentReview: AgentReviewSuggestionAction): AutocompleteSuggestion => ({
         kind: 'agentReview', key: 'agentReview:' + key, text, label, agentReview, agentReviewQuery: query,
     });
-    const bareTarget = scope === null && !!query && binding.matchesTargetPrefix(query);
+    const bareTarget = scope === null && (!query || binding.matchesTargetPrefix(query));
     if (scope !== 'agent' && !bareTarget) {
         return scope === null && !!query && 'agent'.startsWith(query.toLowerCase())
             ? [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })] : [];

@@ -6607,6 +6607,14 @@ deps: {
     },
 
     agentInput: {
+        sequence: {
+            planOnly: "Només planifica",
+            takesOver: "Pren el relleu",
+            loading: "S’estan carregant els agents…",
+            unknown: "Tria un agent per a cada pas.",
+            unavailable: "Aquests agents no estan disponibles per al traspàs.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Canvia d’agent.`,
+        },
         keepKeyboard: { label: "Mantén el teclat obert després d’enviar" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} de ${total}`,
         sendOptions: {

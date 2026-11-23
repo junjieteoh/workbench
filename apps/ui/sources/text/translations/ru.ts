@@ -6981,6 +6981,14 @@ export const ru: TranslationStructure = {
       },
 
     agentInput: {
+        sequence: {
+            planOnly: "Только план",
+            takesOver: "Принимает задачу",
+            loading: "Загрузка агентов…",
+            unknown: "Выберите агента для каждого шага.",
+            unavailable: "Эти агенты не могут передать задачу друг другу.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Сменить агента.`,
+        },
         keepKeyboard: { label: "Не закрывать клавиатуру после отправки" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} из ${total}`,
         sendOptions: {

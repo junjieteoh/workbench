@@ -5924,6 +5924,14 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
     },
 
     agentInput: {
+        sequence: {
+            planOnly: "僅規劃",
+            takesOver: "接手工作",
+            loading: "正在載入代理程式…",
+            unknown: "請為每個步驟選擇一個代理程式。",
+            unavailable: "這些代理程式目前無法交接任務。",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}，${agent}。變更代理程式。`,
+        },
         keepKeyboard: { label: "傳送後保持鍵盤開啟" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} / ${total}`,
         sendOptions: {
