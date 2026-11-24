@@ -14,6 +14,8 @@ In **New Session**, choose **jj-server** and a project directory. Select **Gemin
 
 The default Claude profile uses the Agent SDK. The artifact profile applies only to new sessions created with it and keeps normal Claude approvals enabled.
 
+To use Grok through Cursor, sign in to Cursor Agent on the worker with `agent login` and run `agent models` to see the models available to that account. Choose **Cursor** as the provider and select the Grok model. To review a draft in an existing Claude chat, ask Claude to delegate the review to that Cursor model and revise with the result.
+
 ## Reproduce the server setup
 
 The Ubuntu worker uses a checkout at `~/workbench-happier/fork-source`, a paired Happier launcher at `~/workbench-happier/happier`, and the systemd user service `happier-daemon.workbench-tailnet.service`. The server user needs Google application-default credentials with Vertex access and a signed-in Claude subscription profile at `~/workbench-happier/state/claude`.
