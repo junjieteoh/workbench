@@ -41,7 +41,7 @@ describe('startSessionAgentReview', () => {
         await expect(startSessionAgentReview(params)).resolves.toEqual({ ok: true, status: 'started' });
         expect(execute).toHaveBeenCalledWith('subagents.delegate.start', expect.objectContaining({
             sessionId: 'source', backendTargetKeys: ['acpBackend:peer-1'], modelId: 'selected-model',
-            notifyParentOnCompletion: true, permissionMode: 'read_only', runClass: 'bounded',
+            submittedInstruction: params.instructions, notifyParentOnCompletion: true, permissionMode: 'read_only', runClass: 'bounded',
         }), expect.objectContaining({ serverId: 'private', actionRequestId: 'request-1', surface: 'ui_button' }));
         const request = execute.mock.calls[0]![1];
         expect(request.instructions).toContain('Check the forecast assumptions.');

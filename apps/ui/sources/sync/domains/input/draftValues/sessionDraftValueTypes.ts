@@ -101,6 +101,7 @@ const ComposerAgentReviewMentionSchema = z.object({
     kind: z.literal('agentReview'),
     ...ComposerMentionTokenShape,
     selection: ComposerAgentReviewSelectionSchema,
+    action: z.literal('delegate').optional(),
     localId: z.string().min(1),
 });
 export type ComposerAgentReviewMention = z.infer<typeof ComposerAgentReviewMentionSchema>;

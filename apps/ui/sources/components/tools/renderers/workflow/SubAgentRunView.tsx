@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 
 import type { ToolViewProps } from '@/components/tools/renderers/core/_registry';
+import { readDelegateAssignment } from '@/components/tools/catalog/core/subAgentPresentation';
 import { StructuredResultView } from '@/components/tools/renderers/system/StructuredResultView';
 import type { Message } from '@/sync/domains/messages/messageTypes';
 import {
@@ -64,7 +65,15 @@ function coerceTextMessages(messages: readonly Message[]): readonly string[] {
     return out;
 }
 
-export const SubAgentRunView = React.memo<ToolViewProps>(({ tool, messages, detailLevel, sessionId, messageId, interaction }) => {
+export const SubAgentRunView = React.memo<ToolViewProps>((props) => {
+    const assignment = props.detailLevel === 'title' ? null : readDelegateAssignment(props.tool.input);
+    return <>
+        {assignment ? <Text selectable testID="delegate-submitted-instruction">{assignment}</Text> : null}
+        <SubAgentRunBody {...props} />
+    </>;
+});
+
+function SubAgentRunBody({ tool, messages, detailLevel, sessionId, messageId, interaction }: ToolViewProps) {
     if (tool.state === 'running') {
         return (
             <SubAgentSummarySection
@@ -164,7 +173,7 @@ export const SubAgentRunView = React.memo<ToolViewProps>(({ tool, messages, deta
             ))}
         </View>
     );
-});
+}
 
 const styles = StyleSheet.create((theme) => ({
     container: {

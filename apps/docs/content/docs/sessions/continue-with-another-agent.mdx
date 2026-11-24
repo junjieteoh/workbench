@@ -40,12 +40,18 @@ remains unavailable.
 
 ## Run several turns in order
 
-On a compatible Workbench worker, type a task ending in an agent mention,
-select the agent, and choose **Hand off**. You can also type an ordered list
-of turns, such as `@claude draft this, then @gemini review it,
-then back to @claude revise it`. Check the agent, model, and instruction in
-each row before you send. Happier waits for each turn to complete and shows
-the replies in the original thread.
+On a compatible Workbench worker, type `Write a draft and pass to @codex`.
+The current agent gets the first turn. You can also name every participant,
+as in `@claude draft this, then @gemini review it, then back to @claude revise it`.
+Edit the agent, model, or instruction in each row before sending.
+Happier waits for each turn to complete and keeps the replies in the same chat.
+
+The preview is available before you resume a stopped chat. If you enter
+a provider Resume ID that matches a Happier chat on the selected machine,
+Happier opens that chat when you send.
+
+Choose **Delegate** in the agent picker for background work. The run card
+shows the submitted instruction and the delegate's result.
 
 ## Arm an Agent, then send
 

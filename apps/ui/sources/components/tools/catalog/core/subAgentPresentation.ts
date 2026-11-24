@@ -81,6 +81,11 @@ function resolveNativeSessionModelId(agentId: AgentId | null, metadata: Metadata
     return models?.provider === agentId ? readNonBlankString(models.currentModelId) : null;
 }
 
+export function readDelegateAssignment(input: unknown): string | null {
+    const run = asRecord(input);
+    return run?.intent === 'delegate' ? readNonBlankString(asRecord(run.intentInput)?.submittedInstruction) : null;
+}
+
 function resolveManagedIntent(input: Record<string, unknown>): string | null {
     const intent = readNonBlankString(input.intent);
     if (!intent) return null;

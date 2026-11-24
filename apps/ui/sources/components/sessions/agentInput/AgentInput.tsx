@@ -342,6 +342,7 @@ interface AgentInputProps {
     agentSequence?: Readonly<{
         resolveModels?: AgentReviewComposerBinding['resolveModels'];
         currentTargetKey: string;
+        currentModelId?: string | null;
         successorTargets: readonly ComposerAgentReviewTarget[];
         scopeKey?: string;
     }>;
@@ -1418,7 +1419,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         resolveModels: props.agentSequence?.resolveModels,
         successorTargets: props.agentSequence?.successorTargets,
         currentTargetKey: props.agentSequence?.currentTargetKey,
-        currentModelId: props.modelMode,
+        currentModelId: props.agentSequence?.currentModelId !== undefined ? props.agentSequence.currentModelId
+            : props.agentReview?.handoff ? props.agentReview.handoff.first.modelId : props.modelMode,
         scopeKey: props.agentSequence?.scopeKey ?? props.sessionId,
     });
     const hasSequence = sequence.parsed !== null;
@@ -1830,9 +1832,16 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }, [enterToSendEnabled, isInputFocused, props.disabled]);
 
     const activeWord = activeWordState?.activeWord ?? null;
-    const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled && !hasSequence ? activeWord : null;
+    const activeHandoffAddress = sequence.parsed?.stages.some(stage => stage.handoff && activeWordState?.offset === stage.start) === true;
+    const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled && (!hasSequence || activeHandoffAddress) ? activeWord : null;
+    const resolveSuggestions = React.useCallback<ActiveSuggestionsHandler>(async (query, signal) => {
+        const suggestions = await props.autocompleteSuggestions(query, signal);
+        if (!activeHandoffAddress) return suggestions;
+        return suggestions.filter(({ agentReview }) => agentReview &&
+            (agentReview.kind === 'target' || agentReview.kind === 'handoff' || agentReview.kind === 'open' || agentReview.kind === 'status'));
+    }, [props.autocompleteSuggestions, activeHandoffAddress]);
     // Selection follows candidate identity, not an index (INV-6) — the hook owns that.
-    const [resolvedSuggestions, selected, moveUp, moveDown, resolvedSuggestionQuery] = useActiveSuggestions(activeSuggestionQuery, props.autocompleteSuggestions, { wrapAround: true });
+    const [resolvedSuggestions, selected, moveUp, moveDown, resolvedSuggestionQuery] = useActiveSuggestions(activeSuggestionQuery, resolveSuggestions, { wrapAround: true });
 
     const choosingReviewer = !!props.agentReview && activeSuggestionQuery !== null
         && (activeSuggestionQuery === '@agent' || activeSuggestionQuery.startsWith('@agent:')
@@ -3376,7 +3385,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             {!hasSequence && props.agentReview?.selection ? (
                 <View style={{ alignSelf: 'flex-start' }}>
                     <RoundButton size="small" testID="agent-input-reviewer" disabled={props.disabled}
-                        title={t('agentInput.agentReview.review') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel + ' ×'}
+                        title={t('executionRuns.newRun.intents.delegate') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel + ' ×'}
                         accessibilityLabel={t('agentInput.agentReview.remove') + ' · ' + props.agentReview.selection.target.label + ' · ' + props.agentReview.selection.modelLabel}
                         onPress={clearReviewer} />
                 </View>

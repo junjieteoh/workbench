@@ -27,6 +27,45 @@ describe('a two-stage composer handoff', () => {
         for (const stage of parsed!.stages) expect(text.slice(stage.start, stage.end)).toBe('@' + stage.address);
     });
 
+    it.each(['and pass to', 'then pass to', 'and then pass it to', 'hand off to', 'and hand over to'])(
+        'uses the selected agent for an unaddressed first task and a visible default after %s', divider => {
+            const text = 'Generate a math problem ' + divider + ' @codex';
+            const stages = parseComposerAgentSequence(text)?.stages;
+            expect(stages?.map(stage => stage.instructions)).toEqual(['Generate a math problem', 'Take over from the previous turn.']);
+            expect(stages?.[0]).toMatchObject({ implied: true });
+            expect(stages?.[1].address).toBe('codex');
+        });
+
+    it('preserves an explicit model and strips the connective from the successor assignment', () => {
+        const text = '@codex/example-model Do X, then pass to @claude to review, then back to @codex to revise';
+        const parsed = parseComposerAgentSequence(text)!;
+        expect(parsed.stages.map(stage => [stage.address, stage.instructions])).toEqual([
+            ['codex/example-model', 'Do X'], ['claude', 'review'], ['codex', 'revise'],
+        ]);
+        expect(replaceComposerSequenceInstructions(text, parsed.stages[1], 'check details')).toBe(text.replace('review', 'check details'));
+    });
+
+    it('lets the editor replace the implicit agent, change the default task and preserve both when moving a row', () => {
+        const text = 'Draft the summary and pass to @gemini';
+        const parsed = parseComposerAgentSequence(text)!;
+        const first = listComposerSequenceChoices(catalog).find(choice => choice.modelId === opus.id)!;
+        expect(replaceComposerSequenceAddress(text, parsed.stages[0], first)).toBe('@claude/model-abc ' + text);
+        const edited = replaceComposerSequenceInstructions(text, parsed.stages[0], 'Gather facts');
+        expect(parseComposerAgentSequence(edited)?.stages[0].instructions).toBe('Gather facts');
+        expect(replaceComposerSequenceInstructions(text, parsed.stages[1], 'Review the figures')).toBe(text + ' Review the figures');
+        const moved = reorderComposerSequence(text, parsed, { kind: 'up', index: 1 }, formatComposerSequenceAddress(first));
+        expect(parseComposerAgentSequence(moved)?.stages.map(stage => [stage.address, stage.instructions])).toEqual([
+            ['gemini', 'Take over from the previous turn.'], ['claude/model-abc', 'Draft the summary'],
+        ]);
+        const cleared = replaceComposerSequenceInstructions(text, parsed.stages[1], '');
+        expect(parseComposerAgentSequence(cleared)?.stages[1].instructions).toBe('');
+    });
+
+    it.each(['Review "pass to @codex" literally', 'Show `pass to @codex` as code', 'Draft a note to @codex',
+        'Write an email and then @codex', 'What does "and pass to @codex" mean?'])('leaves unaddressed prose alone: %s', text => {
+        expect(parseComposerAgentSequence(text)).toBeNull();
+    });
+
     it('retains a partially typed second assignment and follows the native quoted mention grammar', () => {
         const parsed = parseComposerAgentSequence('@"Claude Code": Plan the résumé\nCarefully, then @gemini');
         expect(parsed?.stages[0]).toMatchObject({ address: 'Claude Code', instructions: 'Plan the résumé\nCarefully' });

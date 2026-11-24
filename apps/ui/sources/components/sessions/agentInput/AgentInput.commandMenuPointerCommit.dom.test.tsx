@@ -355,6 +355,8 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         await typeIntoComposer(composer, '@');
         await vi.waitFor(() => expect(findMenuRow('agentReview:claude')).not.toBeNull());
         await pressRow(composer, 'agentReview:claude');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:claude/delegate')).not.toBeNull());
+        await pressRow(composer, 'agentReview:claude/delegate');
         await vi.waitFor(() => expect(findMenuRow('agentReview:claude/model-a')).not.toBeNull());
         await pressRow(composer, 'agentReview:claude/model-a');
         expect(composer.text()).toBe('@Claude ');
@@ -412,6 +414,27 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         }));
     });
 
+    it('previews a typed pass without picking a menu action and sends only the two visible assignments', async () => {
+        const lead = { agentId: 'claude', label: 'Claude', backendTarget: {kind: 'builtInAgent', agentId: 'claude'} } as const;
+        const next = { agentId: 'codex', label: 'Codex', backendTarget: {kind: 'builtInAgent', agentId: 'codex'} } as const;
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer(undefined, onSend, {
+            currentTargetKey: 'agent:claude', currentModelId: 'catalog-model', successorTargets: [lead, next],
+            resolveModels: async () => [{id: 'catalog-model', label: 'Selected model'}],
+        });
+        const text = 'Generate a math problem and pass to @codex';
+        await typeIntoComposer(composer, text);
+        const row = (i: number) => document.querySelector<HTMLTextAreaElement>('[data-testid="composer-sequence-task-' + i + '"]')?.value;
+        await vi.waitFor(() => expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Selected model'));
+        expect(row(0)).toBe('Generate a math problem');
+        expect(row(1)).toBe('agentInput.sequence.takeOverTask');
+        expect(onSend).not.toHaveBeenCalled();
+        await act(async () => { document.querySelector<HTMLElement>('[data-testid="session-composer-send"]')?.click(); });
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            inputTextOverride: text, agentSequence: [expect.objectContaining({target: lead, modelId: 'catalog-model'}), expect.objectContaining({target: next, modelId: null})],
+        }));
+    });
+
     it.each([
         ['cursor', 'codex'],
         ['gemini', 'claude'],
@@ -461,6 +484,11 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         await press('ArrowDown');
         await press('Enter');
         expect(composer.text()).toBe('Check the draft @agent:gemini/');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:gemini/delegate')).not.toBeNull());
+        expect(findMenuRow('agentReview:gemini/review-model')).toBeNull();
+        expect(resolveModels).not.toHaveBeenCalled();
+        await press('Tab');
+        expect(composer.text()).toBe('Check the draft @agent:gemini/delegate/');
         await vi.waitFor(() => expect(findMenuRow('agentReview:gemini/review-model')).not.toBeNull());
         await press('ArrowDown');
         await press('Tab');
@@ -483,6 +511,8 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         await typeIntoComposer(composer, 'Look at this ' + query);
         await vi.waitFor(() => expect(findMenuRow('agentReview:' + agentId)).not.toBeNull());
         await pressRow(composer, 'agentReview:' + agentId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + agentId + '/delegate')).not.toBeNull());
+        await pressRow(composer, 'agentReview:' + agentId + '/delegate');
         await vi.waitFor(() => expect(findMenuRow('agentReview:' + agentId + '/test-model')).not.toBeNull());
         await pressRow(composer, 'agentReview:' + agentId + '/test-model');
         expect(composer.text()).toBe('Look at this @' + agentId + ' ');

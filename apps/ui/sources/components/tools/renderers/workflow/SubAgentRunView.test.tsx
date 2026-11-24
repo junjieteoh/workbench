@@ -34,6 +34,17 @@ describe('SubAgentRunView', () => {
         structuredResultViewPropsSpy.mockReset();
     });
 
+    it.each([['running', 'summary'], ['completed', 'full']])('keeps the complete multiline task in a %s delegate receipt at %s detail', async (state, detailLevel) => {
+        const assignment = 'Check the forecast.\nExplain which estimate changes the decision.';
+        const { tree } = await renderScreen(<SubAgentRunView
+            tool={{ state, input: { intent: 'delegate', intentInput: { submittedInstruction: assignment }, instructions: 'context injected for the agent' },
+                result: state === 'completed' ? { summary: 'Done.' } : null } as any}
+            metadata={null} messages={[]} detailLevel={detailLevel} />);
+        const text = collectHostText(tree).join('\n');
+        expect(text).toContain(assignment);
+        expect(text).not.toContain('context injected for the agent');
+    });
+
     it('renders sidechain text messages while running (detailLevel=full)', async () => {
         let tree!: renderer.ReactTestRenderer;
         tree = (await renderScreen(<SubAgentRunView

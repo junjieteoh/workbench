@@ -105,6 +105,7 @@ export type NewSessionSimplePanelProps = Readonly<{
     handleCreateSession: (opts?: HandleCreateSessionOptions) => void;
     canCreate: boolean;
     isCreating: boolean;
+    agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence'];
     emptyAutocompleteKinds: React.ComponentProps<typeof AgentInput>['autocompleteKinds'];
     emptyAutocompleteSuggestions: React.ComponentProps<typeof AgentInput>['autocompleteSuggestions'];
     sessionPromptInputMaxHeight?: number;
@@ -517,6 +518,7 @@ function NewSessionSimplePanelComposer({
                         isSending={props.isCreating}
                         disabled={props.isCreating}
                         placeholder={t('session.inputPlaceholder')}
+                        agentSequence={props.agentSequence}
                         autocompleteKinds={props.emptyAutocompleteKinds}
                         autocompleteSuggestions={props.emptyAutocompleteSuggestions}
                         extraActionChips={attachmentsController.extraActionChips}

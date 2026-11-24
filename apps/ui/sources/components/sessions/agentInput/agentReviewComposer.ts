@@ -23,7 +23,7 @@ export type AgentReviewComposerBinding = Readonly<{
     resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly ComposerAgentReviewModel[]>;
 }>;
 export type AgentReviewSuggestionAction =
-    | { kind: 'open' | 'status' }
+    | { kind: 'open' | 'status' | 'delegate' }
     | { kind: 'target'; target: ComposerAgentReviewTarget }
     | { kind: 'model'; selection: ComposerAgentReviewSelection }
     | { kind: 'handoff'; target: ComposerAgentReviewTarget };
@@ -121,24 +121,31 @@ export async function resolveAgentReviewSuggestions(params: {
             const id = scopedQuery.slice(0, separator);
             const target = targets.get(id);
             if (target) {
-                const search = scopedQuery.slice(separator + 1).toLowerCase();
-                const handoffLabel = t('agentInput.sequence.handOff');
-                const handoff = handoffTargets.some(candidate => targetQueryId(candidate) === id)
-                    && (!search || handoffLabel.toLowerCase().includes(search))
-                    ? [row(id + '/handoff', '@' + query, handoffLabel, { kind: 'handoff', target })] : [];
-                if (!reviewTargets?.some(candidate => targetQueryId(candidate) === id)) return handoff;
-                const models = await binding.resolveModels(target, signal).catch(error => {
-                    if (!handoff.length) throw error;
-                    return [];
-                });
-                const matches = models.filter(model => [model.label, model.id].some(value => value?.toLowerCase().includes(search)));
-                if (handoff.length || matches.length) return [...handoff, ...matches.map(model => ({
-                    ...row(id + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
-                        { kind: 'model', selection: { target, modelId: model.id, modelLabel: model.label } }),
-                    ...(model.source
-                        ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') }
-                        : handoff.length ? { description: t('agentInput.agentReview.review') } : {}),
-                }))];
+                const actionQuery = scopedQuery.slice(separator + 1).toLowerCase();
+                const canDelegate = reviewTargets?.some(candidate => targetQueryId(candidate) === id);
+                if (actionQuery.startsWith('delegate/')) {
+                    if (!canDelegate) return [];
+                    const search = actionQuery.slice('delegate/'.length);
+                    const models = await binding.resolveModels(target, signal);
+                    if (signal?.aborted) return [];
+                    const matches = models.filter(model => [model.label, model.id].some(value => value?.toLowerCase().includes(search)));
+                    if (matches.length) return matches.map(model => ({
+                        ...row(id + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
+                            { kind: 'model', selection: { target, modelId: model.id, modelLabel: model.label } }),
+                        ...(model.source ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') } : {}),
+                    }));
+                } else {
+                    const handoffLabel = t('agentInput.sequence.handOff');
+                    const delegateLabel = t('executionRuns.newRun.intents.delegate');
+                    const actions: AutocompleteSuggestion[] = [];
+                    if (handoffTargets.some(candidate => targetQueryId(candidate) === id) && handoffLabel.toLowerCase().includes(actionQuery)) {
+                        actions.push(row(id + '/handoff', '@' + query, handoffLabel, { kind: 'handoff', target }));
+                    }
+                    if (canDelegate && delegateLabel.toLowerCase().includes(actionQuery)) {
+                        actions.push(row(id + '/delegate', '@agent:' + id + '/delegate/', delegateLabel, { kind: 'delegate' }));
+                    }
+                    if (actions.length) return actions;
+                }
             }
         }
         if (bareTarget) return [];

@@ -2229,6 +2229,84 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             } finally { await screen.unmount(); }
         });
 
+        it('previews with the armed lead on a resumable session and resumes only for the explicit sequence Send', async () => {
+            armSecondAgent();
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            featureEnabledState.executionRuns = false;
+            sequenceStart.mockReset().mockResolvedValue({ ok: true });
+            resumeSessionSpy.mockClear().mockResolvedValueOnce({type: 'error'}).mockResolvedValue({type: 'success'});
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            try {
+                const input = () => findTestInstanceByTypeWithProps(screen.tree!, 'AgentInput', {})!;
+                const text = 'Generate a math problem and pass to @gemini';
+                const selected = (agentId: string) => ({ target: { agentId, label: agentId, backendTarget: { kind: 'builtInAgent', agentId } }, modelId: null, modelLabel: 'Default' });
+                const submit = (first = 'claude') => invokeTestInstanceHandler(input(), 'onSend', {
+                    inputTextOverride: text, agentSequence: [selected(first), selected('gemini')],
+                }, 'AgentInput');
+                await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', text, 'AgentInput'); });
+                expect(input().props.agentSequence?.currentTargetKey).toBe('agent:claude');
+                expect(resumeSessionSpy).not.toHaveBeenCalled();
+                // An out-of-date preview must not resume or spend a provider turn.
+                await act(async () => { submit('gemini'); await Promise.all(pendingFireAndForget); });
+                expect(resumeSessionSpy).not.toHaveBeenCalled();
+                await act(async () => { submit(); await Promise.all(pendingFireAndForget); });
+                expect(resumeSessionSpy).toHaveBeenCalledTimes(1);
+                expect(sequenceStart).not.toHaveBeenCalled();
+                expect(clearArmedContinuationSpy).not.toHaveBeenCalled();
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe(text);
+                await act(async () => { submit(); await Promise.all(pendingFireAndForget); });
+                expect(sequenceStart).toHaveBeenCalledWith(expect.objectContaining({
+                    sessionId: 's1', expectedCurrentAgentId: 'codex', steps: [
+                        expect.objectContaining({backendTarget: selected('claude').target.backendTarget, instructions: 'Generate a math problem'}),
+                        expect.objectContaining({backendTarget: selected('gemini').target.backendTarget, instructions: expect.stringMatching(/takeOverTask|Take over/i)}),
+                    ],
+                }));
+                expect(clearArmedContinuationSpy).toHaveBeenCalledWith('armed-local-id');
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('');
+            } finally { await screen.unmount(); }
+        });
+
+        it('retains a legacy model-only draft until its author explicitly chooses Delegate', async () => {
+            const { Modal } = await import('@/modal');
+            const confirm = vi.mocked(Modal.confirm);
+            sendMessageSpy.mockClear();
+            const selection = {
+                target: { backendTarget: { kind: 'builtInAgent', agentId: 'gemini' }, agentId: 'gemini', label: 'Gemini' },
+                modelId: null, modelLabel: 'Provider default',
+            } as const;
+            sessionState.session.active = true;
+            sessionState.session.presence = 'online';
+            sessionMachineTargetState.available = true;
+            reviewCommentDraftsState.current = [];
+            featureEnabledState.executionRuns = true;
+            reviewStart.mockReset().mockResolvedValue({ ok: true, status: 'started' });
+            const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+            const input = () => findTestInstanceByTypeWithProps(screen.tree!, 'AgentInput', {})!;
+            try {
+                await act(async () => {
+                    invokeTestInstanceHandler(input(), 'onChangeText', '@Gemini Check the draft', 'AgentInput');
+                    existingSessionDraftSemanticValues.write(TEST_SERVER_ACCOUNT_SCOPE, 's1', 'structuredInput.mentions', [{
+                        kind: 'agentReview', localId: 'saved-model', tokenText: '@Gemini', selection,
+                    }]);
+                });
+                const send = () => invokeTestInstanceHandler(input(), 'onSend', { agentReviewSelection: selection }, 'AgentInput');
+                confirm.mockResolvedValueOnce(false);
+                await act(async () => { send(); await Promise.all(pendingFireAndForget); });
+                expect(confirm).toHaveBeenCalledWith(expect.any(String), 'Check the draft', { confirmText: 'executionRuns.newRun.intents.delegate' });
+                expect(reviewStart).not.toHaveBeenCalled();
+                expect(sendMessageSpy).not.toHaveBeenCalled();
+                expect(draftHookState.valuesBySessionId.get('s1')).toBe('@Gemini Check the draft');
+
+                confirm.mockResolvedValueOnce(true);
+                await act(async () => { send(); await Promise.all(pendingFireAndForget); });
+                expect(reviewStart).toHaveBeenCalledTimes(1);
+                expect(sendMessageSpy).not.toHaveBeenCalled();
+            } finally {
+                await screen.unmount();
+            }
+        });
+
         it('addresses a review to the selected backend and keeps the lead and unsent draft through admission', async () => {
             sessionState.session.active = true;
             sessionState.session.presence = 'online';

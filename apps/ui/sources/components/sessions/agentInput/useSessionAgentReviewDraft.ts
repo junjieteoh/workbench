@@ -23,7 +23,7 @@ export function useSessionAgentReviewDraft(scope: ServerAccountScope | null, ses
         if (!scope) return;
         const current = drafts.read(scope, sessionId, field) ?? [];
         drafts.write(scope, sessionId, field, replaceReviewMention(current, selection ? {
-            kind: 'agentReview', localId: randomUUID(), selection, tokenText: formatAgentReviewMentionToken(selection.target),
+            kind: 'agentReview', action: 'delegate', localId: randomUUID(), selection, tokenText: formatAgentReviewMentionToken(selection.target),
         } : null));
     }, [scope, sessionId]);
 
