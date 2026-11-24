@@ -1,3 +1,4 @@
+import { isForegroundSequenceStepId } from '@/session/agentTransition/foregroundSequenceStepId';
 /**
  * Gemini CLI Entry Point
  * 
@@ -1125,6 +1126,9 @@ export async function runGemini(opts: {
             const modelState = readNewestSessionModelsMetadataStateV1(session.getMetadataSnapshot());
             appliedModelIdForPrompt = message.mode.model
               ?? (modelState?.provider === 'gemini' ? modelState.currentModelId : null);
+            if (pendingDeliveryLocalIds.some(isForegroundSequenceStepId)) {
+              await session.sessionTurnLifecycle.beginTurn({ provider: 'gemini', startingInputLocalIds: pendingDeliveryLocalIds });
+            }
             didAttemptProviderSend = true;
             return await sendGeminiPromptWithRetry({
               backend: geminiBackend!,

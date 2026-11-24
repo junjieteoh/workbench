@@ -1261,6 +1261,7 @@ export function createDaemonControlApp({
       sessionId: request.body.sessionId,
       event: request.body.event,
       ...(request.body.terminalStatus ? { terminalStatus: request.body.terminalStatus } : {}),
+      ...(request.body.sequenceInput ? { sequenceInput: request.body.sequenceInput } : {}),
       ...(request.body.turnId ? { turnId: request.body.turnId } : {}),
       ...(request.body.requestedAction ? { requestedAction: request.body.requestedAction } : {}),
       ...(request.body.activeTurnId !== undefined ? { activeTurnId: request.body.activeTurnId } : {}),

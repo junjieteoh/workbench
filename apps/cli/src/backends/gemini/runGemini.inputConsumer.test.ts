@@ -769,7 +769,7 @@ describe('runGemini input consumer migration', () => {
   });
 
   it('confirms consumed pending rows when Gemini reports provider prompt acceptance', async () => {
-    const session = createFakeSession();
+    const session = Object.assign(createFakeSession(), { sessionTurnLifecycle: { beginTurn: vi.fn(async () => ({})) } });
     setFakeSession(session);
     waitForNextInputMock.mockReset();
     waitForNextInputMock
@@ -780,13 +780,13 @@ describe('runGemini input consumer migration', () => {
           model: 'gemini-2.5-pro',
           originalUserMessage: 'visible user text',
           appendSystemPrompt: null,
-          localId: 'local-accepted',
+          localId: 'happier-turn-step-gemini',
           replaySeedAllowed: true,
         },
         isolate: false,
         hash: 'mode-hash-1',
         maxUserMessageSeq: 42,
-        userMessageLocalIds: ['local-accepted'],
+        userMessageLocalIds: ['happier-turn-step-gemini'],
         providerAcceptancePending: true,
       })
       .mockResolvedValueOnce(null);
@@ -815,12 +815,15 @@ describe('runGemini input consumer migration', () => {
       }));
       expect(providerInputOutcomeObserverMock).toHaveBeenCalledWith({
         kind: 'accepted',
-        localId: 'local-accepted',
+        localId: 'happier-turn-step-gemini',
         appliedModelId: 'gemini-2.5-pro',
       });
       expect(createStreamedTranscriptWriterMock.mock.results[0]?.value.setCommitProvenance).toHaveBeenCalledWith({
         kind: 'non_dependent',
         source: 'external',
+      });
+      expect(session.sessionTurnLifecycle.beginTurn).toHaveBeenCalledWith({
+        provider: 'gemini', startingInputLocalIds: ['happier-turn-step-gemini'],
       });
       expect(session.blockPendingMessageDelivery).not.toHaveBeenCalled();
     } finally {

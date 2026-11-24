@@ -90,7 +90,7 @@ export function createSessionAgentSequenceCoordinator(deps: Readonly<{
         return receipt;
     }
 
-    return { start, onParentTurnStarted(sessionId: string) {
+    return { start, isActive: (sessionId: string) => active.has(sessionId), onParentTurnStarted(sessionId: string) {
         const entry = active.get(sessionId);
         if (entry) entry.superseded = true;
     } };

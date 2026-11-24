@@ -34,6 +34,7 @@ import {
 import { resolveCliFeatureDecisionForServer } from '@/features/featureDecisionService';
 import type { Credentials } from '@/persistence';
 import { resolveTrustedSessionAttachmentLocalImagePaths } from '@/session/attachments/resolveTrustedSessionAttachmentLocalImagePaths';
+import { isForegroundSequenceStepId } from './foregroundSequenceStepId';
 import { admitSessionUserMessageToPendingQueue } from '@/session/services/admitSessionUserMessage';
 import { resolveSessionMessagePermissionIntent } from '@/session/services/resolveSessionMessagePermissionIntent';
 import { requestInactiveSessionResume } from '@/session/services/requestInactiveSessionResume';
@@ -315,6 +316,7 @@ async function admitInputAndActivateTarget(params: Readonly<{
     ctx: params.ctx,
     localId,
     text: request.input.text,
+    ...(isForegroundSequenceStepId(localId) ? { pendingAdmissionMode: 'continuation_if_no_queued_user_input' } : {}),
     meta: params.sanitizedMeta,
     permissionIntent: permission.permissionIntent,
     requestedAction: resolveSessionUserMessageRequestedAction({ deliveryIntent: 'runtime_bootstrap' }),

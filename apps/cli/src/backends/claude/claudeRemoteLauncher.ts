@@ -877,9 +877,9 @@ export async function claudeRemoteLauncher(
         }
     };
 
-    async function recordClaudeRemotePromptTurnStarted(): Promise<void> {
+    async function recordClaudeRemotePromptTurnStarted(localIds?: readonly string[]): Promise<void> {
         try {
-            await session.client.sessionTurnLifecycle?.beginTurn({ provider: 'claude' });
+            await session.client.sessionTurnLifecycle?.beginTurn({ provider: 'claude', ...(localIds?.length ? { startingInputLocalIds: localIds } : {}) });
         } catch (error) {
             logger.debug('[remote]: Failed to record Claude remote turn start (non-fatal)', error);
         }
@@ -1485,9 +1485,9 @@ export async function claudeRemoteLauncher(
                     }));
                 }
             };
-            const beginPromptTurn = async (): Promise<void> => {
+            const beginPromptTurn = async (localIds?: readonly string[]): Promise<void> => {
                 beginReadyNotificationTurn();
-                await recordClaudeRemotePromptTurnStarted();
+                await recordClaudeRemotePromptTurnStarted(localIds);
             };
             const isUnifiedTerminalTranscriptActive = (): boolean =>
                 activeRuntimeModeKind === 'unifiedTerminal';
@@ -1764,7 +1764,7 @@ export async function claudeRemoteLauncher(
                             const providerMessage = await resolveQueuedPromptForProvider(p);
                             if (p.pendingProviderAction !== 'steer') await captureClaudeRuntimeAuthRequestIdentity(session);
                             if (p.pendingProviderAction !== 'steer' && !shouldDeferTurnStartUntilTerminalInjection(p.mode)) {
-                                await beginPromptTurn();
+                                await beginPromptTurn(p.userMessageLocalIds ?? undefined);
                             } else {
                                 unifiedBinding.noteNextInjectedPromptShouldSuppressEcho();
                             }
@@ -1807,7 +1807,7 @@ export async function claudeRemoteLauncher(
                         const providerMessage = await resolveQueuedPromptForProvider(msg);
                         if (msg.pendingProviderAction !== 'steer') await captureClaudeRuntimeAuthRequestIdentity(session);
                         if (msg.pendingProviderAction !== 'steer' && !shouldDeferTurnStartUntilTerminalInjection(nextMode)) {
-                            await beginPromptTurn();
+                            await beginPromptTurn(msg.userMessageLocalIds ?? undefined);
                         } else {
                             unifiedBinding.noteNextInjectedPromptShouldSuppressEcho();
                         }

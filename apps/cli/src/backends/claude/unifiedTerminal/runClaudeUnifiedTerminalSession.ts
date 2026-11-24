@@ -2211,6 +2211,7 @@ export async function runClaudeUnifiedTerminalSession<Mode extends EnhancedMode 
           if (batch.mode === undefined) return undefined;
           endStartupHostLivenessGrace();
           return opts.onTerminalPromptInjected?.({
+            ...(batch.userMessageLocalIds?.length ? { userMessageLocalIds: batch.userMessageLocalIds } : {}),
             message: batch.message,
             mode: batch.mode,
             acceptedAs: acceptance.acceptedAs,

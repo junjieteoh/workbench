@@ -329,6 +329,7 @@ import { createSessionUsageLimitRecoveryRuntime } from '@/session/usageLimitReco
 import { observeAcpLifecycleMarker } from '@/agent/runtime/session/turn/lifecycleMarkerAdapter';
 import type { SessionTurnLifecycleControllerWithActiveTurnWitness } from '@/agent/runtime/session/turn/types';
 import { createSessionTurnMutationWriter } from '@/agent/runtime/session/turn/writer';
+import { isForegroundSequenceStepId } from '@/session/agentTransition/foregroundSequenceStepId';
 import { notifyDaemonConnectedServiceTurnLifecycle, notifyDaemonConnectedServiceUsageLimitWaitResumeCancel } from '@/daemon/controlClient';
 import {
     ConnectedServiceTurnLifecycleResultSchema,
@@ -719,6 +720,7 @@ export class ApiSessionClient extends EventEmitter {
     private readonly receivedMessageIds = new LruSet(SESSION_CLIENT_RECEIVED_MESSAGE_ID_CACHE_MAX_ENTRIES);
     private lastObservedMessageSeq = 0;
     private lastObservedUserMessageSeq = 0;
+    private foregroundSequenceInput: { turnId: string; localIds: readonly string[] } | null = null;
     private readonly turnAssistantTextSnapshotStore = createTurnAssistantTextSnapshotStore({
         maxTextChars: configuration.readyNotificationAssistantTextMaxChars,
     });
@@ -1268,6 +1270,7 @@ export class ApiSessionClient extends EventEmitter {
             sessionId: this.sessionId,
             enqueueSessionTurn: createSessionTurnMutationWriter(this.sessionMutationOutbox).enqueueSessionTurn,
             onTurnInputBound: ({ turnId, localIds }) => {
+                if (localIds.some(isForegroundSequenceStepId)) this.foregroundSequenceInput = { turnId, localIds };
                 for (const localId of this.normalizeProviderAcceptedUserMessageLocalIds(localIds)) {
                     const publication = this.ensureCanonicalPendingTurnPublication(localId);
                     if (!publication) continue;
@@ -1291,7 +1294,10 @@ export class ApiSessionClient extends EventEmitter {
                     if (recovery) void recovery.observeSupersession().catch(recovery.reportError);
                 }
                 this.observeTurnLifecycleForPendingDrain(event, terminalStatus);
-                void this.notifyDaemonConnectedServiceTurnLifecycle(event, terminalStatus, turnId);
+                const bound = this.foregroundSequenceInput;
+                const localIds = bound && bound.turnId === turnId ? bound.localIds : undefined;
+                if (localIds && (event === 'assistant_message_end' || event === 'turn_cancelled')) this.foregroundSequenceInput = null;
+                void this.notifyDaemonConnectedServiceTurnLifecycle(event, terminalStatus, turnId, undefined, localIds);
             },
         });
         void this.usageLimitRecoveryRuntime.restore().catch(this.usageLimitRecoveryRuntime.reportError);
@@ -2036,6 +2042,9 @@ export class ApiSessionClient extends EventEmitter {
                 this.pendingWakeSeq += 1;
                 this.emit('metadata-updated');
                 this.emitPendingEligibilityUpdated();
+            }
+            if (!didRequeueConditionalSteer && isForegroundSequenceStepId(localId)) {
+                void this.notifyDaemonConnectedServiceTurnLifecycle('sequence_input_blocked', undefined, undefined, undefined, [localId]);
             }
             logger.debug('[pendingQueue] provider delivery block succeeded', {
                 sessionId: this.sessionId,
@@ -4716,19 +4725,23 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private async notifyDaemonConnectedServiceTurnLifecycle(
-        event: 'prompt_or_steer' | 'task_started' | 'assistant_message_end' | 'turn_cancelled',
+        event: 'prompt_or_steer' | 'task_started' | 'assistant_message_end' | 'turn_cancelled' | 'sequence_input_blocked',
         terminalStatus?: 'completed' | 'failed',
         turnId?: string,
         requestedAction?: PendingRequestedActionV1,
+        sequenceInputLocalIds?: readonly string[],
     ): Promise<ConnectedServiceTurnLifecycleResult | null> {
         if (!this.startedByDaemonProcess) return null;
         let lifecycleResult: ConnectedServiceTurnLifecycleResult | null = null;
         const notify = async (): Promise<void> => {
             try {
+                // The next agent loads the committed transcript after a successful turn.
+                if (sequenceInputLocalIds && terminalStatus === 'completed') await this.drainBestEffortSessionWrites();
                 const result = await notifyDaemonConnectedServiceTurnLifecycle({
                     sessionId: this.sessionId,
                     event,
                     ...(terminalStatus ? { terminalStatus } : {}),
+                    ...(sequenceInputLocalIds ? { sequenceInput: { runnerPid: process.pid, localIds: [...sequenceInputLocalIds] } } : {}),
                     ...(turnId ? { turnId } : {}),
                     ...(requestedAction
                         ? {
@@ -6688,6 +6701,7 @@ export class ApiSessionClient extends EventEmitter {
                 undefined,
                 undefined,
                 requestedAction,
+                isForegroundSequenceStepId(materializedLocalId) ? [materializedLocalId] : undefined,
             );
         }
 

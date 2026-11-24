@@ -657,6 +657,7 @@ function augmentCliCapabilityWithProbeModels(cap: Capability, agentId: AgentCata
 
 type CliCapabilitiesOptions = Readonly<{
     hasSessionAgentTransition?: () => boolean;
+    hasSessionAgentTurnSequence?: () => boolean;
     hasSessionAgentSequence?: () => boolean;
 }>;
 
@@ -686,6 +687,7 @@ export async function createCliCapabilitiesService(options?: CliCapabilitiesOpti
         // shared capabilities. Check the actual owner at detection time.
         detect: async () => ({
             supportsInputPermissionIntent: hasSessionAgentTransition(),
+            ...(options?.hasSessionAgentTurnSequence ? { supportsAgentTurnSequence: options.hasSessionAgentTurnSequence() } : {}),
             ...(options?.hasSessionAgentSequence ? { supportsAgentSequence: options.hasSessionAgentSequence() } : {}),
         }),
     }] : [];

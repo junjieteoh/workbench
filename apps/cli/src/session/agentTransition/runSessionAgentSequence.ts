@@ -8,6 +8,7 @@ import {
     PlanOutputV1Schema,
     type BackendTargetRefV1,
     type SessionAgentSequenceRequestV1,
+    type SessionAgentTurnSequenceRequestV1,
     type SessionAgentTransitionRequestV1,
 } from '@happier-dev/protocol';
 import { resolveSessionPersistedRuntimeIdentity } from '@/daemon/sessions/runtimeSnapshot/buildInactiveSessionResumeSpawnOptions';
@@ -18,6 +19,7 @@ import { sendSessionMessage } from '@/session/services/sendSessionMessage';
 import { tryDecryptSessionMetadata } from '@/session/transport/encryption/sessionEncryptionContext';
 import { logger } from '@/ui/logger';
 
+import { createForegroundTurnSequence } from './sessionAgentTurnSequence';
 import { claimSessionAgentSequence, createSessionAgentSequenceCoordinator } from './sessionAgentSequence';
 
 type Request = SessionAgentSequenceRequestV1;
@@ -43,11 +45,35 @@ export function readSequencePlan(result: unknown, runId: string, target: Backend
     return JSON.stringify({ summary, sections, risks, milestones });
 }
 
-export function createNativeSessionAgentSequence(params: Readonly<{
+type NativeSequenceDependencies = Readonly<{
     credentials: Credentials;
     readRunner: (sessionId: string) => { pid: number; activeTurnId: string | null } | null;
     transition: (request: SessionAgentTransitionRequestV1, canStopSource: () => boolean) => Promise<boolean>;
-}>) {
+}>;
+
+async function deliverNativeForegroundInput(params: NativeSequenceDependencies, input: Readonly<{
+    sessionId: string; localId: string; text: string; expectedCurrentBackendTarget: BackendTargetRefV1; successor: Request['successor'];
+}>, canDeliver: () => boolean): Promise<boolean> {
+    const { credentials } = params;
+    const { successor, expectedCurrentBackendTarget, sessionId, localId, text } = input;
+    if (buildBackendTargetKey(successor.backendTarget) === buildBackendTargetKey(expectedCurrentBackendTarget)) {
+        const sent = await sendSessionMessage({
+            credentials, idOrPrefix: sessionId, message: text, localId, wait: false, timeoutMs: 30_000,
+            resumeInactiveSession: false, modelOverride: successor.modelId,
+            pendingAdmissionMode: 'continuation_if_no_queued_user_input',
+            canAdmit: ({ rawSession, metadata }) => canDeliver() && rawSession.active === true && matchesSource(metadata, expectedCurrentBackendTarget),
+        });
+        return sent.ok && !sent.suppressed;
+    }
+    return params.transition({
+        v: 1, sessionId, expectedCurrentAgentId: getBackendTargetAgentId(expectedCurrentBackendTarget), expectedCurrentBackendTarget,
+        selection: { v: 1, agentId: getBackendTargetAgentId(successor.backendTarget), backendTarget: successor.backendTarget,
+            ...(successor.modelId ? { modelId: successor.modelId } : {}) },
+        input: { text, localId, meta: { displayText: successor.instructions } },
+    }, canDeliver);
+}
+
+export function createNativeSessionAgentSequence(params: NativeSequenceDependencies) {
     const { credentials } = params;
     const readContext = async (command: Request) => {
         const target = await resolveSessionTransportContext({ credentials, idOrPrefix: command.sessionId });
@@ -82,21 +108,7 @@ export function createNativeSessionAgentSequence(params: Readonly<{
         deliver: async (command, plan, canDeliver) => {
             const { successor, expectedCurrentBackendTarget, sessionId, localId } = command;
             const text = [successor.instructions, 'The selected planner produced the following plan. Use it as reference for the requested work.', plan].join('\n\n');
-            if (buildBackendTargetKey(successor.backendTarget) === buildBackendTargetKey(expectedCurrentBackendTarget)) {
-                const sent = await sendSessionMessage({
-                    credentials, idOrPrefix: sessionId, message: text, localId, wait: false, timeoutMs: 30_000,
-                    resumeInactiveSession: false, modelOverride: successor.modelId,
-                    pendingAdmissionMode: 'continuation_if_no_queued_user_input',
-                    canAdmit: ({ rawSession, metadata }) => canDeliver() && rawSession.active === true && matchesSource(metadata, expectedCurrentBackendTarget),
-                });
-                return sent.ok && !sent.suppressed;
-            }
-            return params.transition({
-                v: 1, sessionId, expectedCurrentAgentId: getBackendTargetAgentId(expectedCurrentBackendTarget), expectedCurrentBackendTarget,
-                selection: { v: 1, agentId: getBackendTargetAgentId(successor.backendTarget), backendTarget: successor.backendTarget,
-                    ...(successor.modelId ? { modelId: successor.modelId } : {}) },
-                input: { text, localId, meta: { displayText: successor.instructions } },
-            }, canDeliver);
+            return await deliverNativeForegroundInput(params, { successor, expectedCurrentBackendTarget, sessionId, localId, text }, canDeliver);
         },
         failed: async (command, reason) => {
             const messages = {
@@ -109,6 +121,34 @@ export function createNativeSessionAgentSequence(params: Readonly<{
                 localId: 'sequence-notice-' + command.localId, wait: false, timeoutMs: 30_000,
             });
             if (!attempt.ok) logger.warn('[AGENT SEQUENCE] Could not publish outcome', { sessionId: command.sessionId, reason });
+        },
+    });
+}
+
+
+export function createNativeForegroundTurnSequence(params: NativeSequenceDependencies) {
+    return createForegroundTurnSequence({
+        readRunner: params.readRunner,
+        claim: command => claimSessionAgentSequence(join(configuration.activeServerDir, 'agent-sequence-claims'), command),
+        dispatch(command: SessionAgentTurnSequenceRequestV1, index, localId, guard) {
+            const successor = command.steps[index]!;
+            return deliverNativeForegroundInput(params, {
+                successor, localId, sessionId: command.sessionId, text: successor.instructions,
+                expectedCurrentBackendTarget: command.steps[index - 1]?.backendTarget ?? command.expectedCurrentBackendTarget,
+            }, guard);
+        },
+        async stopped(command, reason, index) {
+            const detail = {
+                interrupted: 'You or another session took over.',
+                failed: 'The current turn was cancelled or failed.',
+                unconfirmed: 'The worker could not confirm this turn or delivery to the next agent.',
+            }[reason];
+            const result = await sendSessionMessage({
+                credentials: params.credentials, idOrPrefix: command.sessionId, kind: 'notice', from: 'Agent sequence',
+                message: 'Sequence stopped at step ' + (index + 1) + '. ' + detail,
+                localId: 'sequence-notice-' + command.localId, wait: false, timeoutMs: 30_000,
+            });
+            if (!result.ok) logger.warn('[AGENT SEQUENCE] Could not publish stop notice', { sessionId: command.sessionId, reason });
         },
     });
 }

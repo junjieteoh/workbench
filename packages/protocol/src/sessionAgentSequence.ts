@@ -35,3 +35,20 @@ export const SessionAgentSequenceResultV1Schema = lazySchema(() => z.discriminat
     ]) }),
 ]));
 export type SessionAgentSequenceResultV1 = z.infer<typeof SessionAgentSequenceResultV1Schema>;
+
+export const SessionAgentTurnSequenceRequestV1Schema = lazySchema(() => z.strictObject({
+    action: z.literal('turn_sequence'),
+    sessionId: z.string().trim().min(1),
+    localId: PendingLocalIdSchema,
+    expectedCurrentBackendTarget: BackendTargetRefSchema,
+    steps: z.array(SequenceStepV1Schema).min(2),
+}));
+export type SessionAgentTurnSequenceRequestV1 = z.infer<typeof SessionAgentTurnSequenceRequestV1Schema>;
+
+export const SessionAgentTurnSequenceResultV1Schema = lazySchema(() => z.discriminatedUnion('status', [
+    z.strictObject({ status: z.literal('started') }),
+    z.strictObject({ status: z.literal('rejected'), reason: z.enum([
+        'unsupported', 'invalid_request', 'already_queued', 'source_busy', 'source_changed', 'step_start_failed', 'previous_request',
+    ]) }),
+]));
+export type SessionAgentTurnSequenceResultV1 = z.infer<typeof SessionAgentTurnSequenceResultV1Schema>;

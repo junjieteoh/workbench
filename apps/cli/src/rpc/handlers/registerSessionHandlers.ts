@@ -272,6 +272,7 @@ export function registerSessionHandlers(
         setAdditionalAllowedWriteDirs?: (dirs: string[]) => void;
         accessPolicy?: FilesystemAccessPolicy;
         hasSessionAgentTransition?: () => boolean;
+        hasSessionAgentTurnSequence?: () => boolean;
         hasSessionAgentSequence?: () => boolean;
         sessionRuntimeControls?: SessionRuntimeControls | null;
         getUsageLimitRecoveryCheckNow?: () => SessionRuntimeControls['checkUsageLimitRecoveryNow'];
@@ -303,6 +304,7 @@ export function registerSessionHandlers(
     // Checklist-based machine capability registry (replaces legacy detect-cli / detect-capabilities / dep-status).
     registerCapabilitiesHandlers(rpcHandlerManager, {
         hasSessionAgentTransition: opts?.hasSessionAgentTransition,
+        hasSessionAgentTurnSequence: opts?.hasSessionAgentTurnSequence,
         hasSessionAgentSequence: opts?.hasSessionAgentSequence,
     });
     registerPreviewEnvHandler(rpcHandlerManager);
