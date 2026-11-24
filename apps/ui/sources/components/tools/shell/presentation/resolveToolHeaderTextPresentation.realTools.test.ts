@@ -129,6 +129,23 @@ describe('resolveToolHeaderTextPresentation (real known tools)', () => {
         expect(model.subtitle).toBe('Timed out after 120000ms');
     });
 
+    it('shows the submitted delegate instruction in the native run receipt after completion', () => {
+        const tool = makeToolCall({
+            name: 'SubAgentRun', state: 'completed', description: 'Child finished.',
+            input: { intent: 'delegate', instructions: 'review context and private replay', intentInput: { submittedInstruction: 'Check the Q3 forecast.' } },
+            result: { summary: 'Consider changing the Q3 target.' },
+        });
+        expect(resolveToolHeaderTextPresentation({ tool, metadata: null }).subtitle).toBe('Check the Q3 forecast.');
+    });
+
+    it('keeps a generic delegate label separate from a composer-submitted instruction', () => {
+        const tool = makeToolCall({
+            name: 'SubAgentRun', state: 'completed', description: 'Finished.',
+            input: { intent: 'delegate', label: 'Quarterly review', intentInput: { label: 'Internal task name' } },
+        });
+        expect(resolveToolHeaderTextPresentation({ tool, metadata: null }).subtitle).toBe('Quarterly review');
+    });
+
     it('labels a managed execution run with its requested model and intent', () => {
         const tool = makeToolCall({
             name: 'SubAgentRun',

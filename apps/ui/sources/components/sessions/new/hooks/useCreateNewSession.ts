@@ -10,6 +10,7 @@ import {
     machineBash,
     machineSpawnNewSession,
     resetMachineSpawnAttemptCustody,
+    resumeSession,
 } from '@/sync/ops';
 import type { MachineSpawnAttemptCustody } from '@/sync/ops/machines';
 import { resolveTerminalSpawnOptions } from '@/sync/domains/settings/terminalSettings';
@@ -22,16 +23,16 @@ import { getBuiltInProfile } from '@/sync/domains/profiles/profileUtils';
 import { isProfileCompatibleWithBackendTarget, type AIBackendProfile } from '@/sync/domains/profiles/profileCompatibility';
 import type { Settings } from '@/sync/domains/settings/settings';
 import type { SavedSecret } from '@/sync/domains/settings/savedSecretTypes';
-import type { ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
+import { areServerAccountScopesEqual, type ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
 import { resolveEffectiveWindowsRemoteSessionLaunchMode } from '@/sync/domains/session/spawn/windowsRemoteSessionLaunchMode';
 import { getAgentCore, type AgentId } from '@/agents/catalog/catalog';
-import { buildSpawnEnvironmentVariablesFromUiState, buildSpawnSessionExtrasFromUiState, getAgentResumeExperimentsFromSettings, getNewSessionPreflightIssues } from '@/agents/catalog/catalog';
+import { buildResumeSessionExtrasFromUiState, buildSpawnEnvironmentVariablesFromUiState, buildSpawnSessionExtrasFromUiState, getAgentResumeExperimentsFromSettings, getNewSessionPreflightIssues } from '@/agents/catalog/catalog';
 import { buildProfileEnvironmentVariablesForSession } from '@/components/sessions/new/modules/profileHelpers';
 import type { NewSessionPromptStore } from '@/components/sessions/new/hooks/screenModel/newSessionPromptStore';
 import type { UseMachineEnvPresenceResult } from '@/hooks/machine/useMachineEnvPresence';
 import { getMachineCapabilitiesSnapshot } from '@/hooks/server/useMachineCapabilitiesCache';
 import type { PermissionMode, ModelMode } from '@/sync/domains/permissions/permissionTypes';
-import { SPAWN_SESSION_ERROR_CODES, type ActionOperationSnapshotV1, type BackendTargetRefV1, type WindowsRemoteSessionLaunchMode } from '@happier-dev/protocol';
+import { getBackendTargetAgentId, SPAWN_SESSION_ERROR_CODES, type ActionOperationSnapshotV1, type BackendTargetRefV1, type WindowsRemoteSessionLaunchMode } from '@happier-dev/protocol';
 import type { AcpConfigOptionOverridesV1 } from '@happier-dev/protocol';
 import type { SessionSpawnSourceContextV1 } from '@happier-dev/protocol';
 import { parsePermissionIntentAlias } from '@happier-dev/agents';
@@ -48,6 +49,13 @@ import { isSocketIoAckTimeoutError } from '@happier-dev/protocol/rpcErrors';
 import { readNonBlankSessionControlIdentifier } from '@/sync/domains/sessionControl/opaqueIdentifiers';
 import type { PreflightModelList } from '@/sync/domains/models/modelOptions';
 import { getModelOptionsForAgentType } from '@/sync/domains/models/modelOptions';
+
+import { parseComposerAgentSequence } from '@/components/sessions/agentInput/sequence/composerAgentSequence';
+import type { AgentInputSendOptions } from '@/components/sessions/agentInput/agentInputSendOptions';
+import { resolveHandoffResumeSession } from '@/components/sessions/new/modules/resolveHandoffResumeSession';
+import { buildResumeSessionBaseOptionsFromSession } from '@/sync/domains/session/resume/resumeSessionBase';
+import { startSessionAgentSequence } from '@/sync/ops/startSessionAgentSequence';
+import { randomUUID } from '@/platform/randomUUID';
 
 function getActiveNewSessionDraftScope() {
     return storage.getState().profileScope ?? null;
@@ -140,6 +148,7 @@ export type HandleCreateSessionOptions = Readonly<{
     /** What follows this Send, overriding the "After sending" setting. */
     afterSend?: NewSessionAfterSendMode;
     initialMessage?: 'send' | 'skip';
+    agentSequence?: AgentInputSendOptions['agentSequence'];
     inputTextOverride?: string;
     /**
      * The composer's structured-input envelope for the first turn (`mentions[]` and the legacy
@@ -335,6 +344,7 @@ export function useCreateNewSession(params: Readonly<{
     const launchUserAttemptIdForCurrentIntentRef = React.useRef(launchUserAttemptIdForCurrentIntent);
     launchUserAttemptIdForCurrentIntentRef.current = launchUserAttemptIdForCurrentIntent;
     const createInFlightRef = React.useRef(false);
+    const resumeHandoffAttempt = React.useRef<{ fingerprint: string; requestId: string } | null>(null);
     const handledTerminalReentryRevisionRef = React.useRef<string | null>(null);
     // Keep the latest params available synchronously so event handlers can't observe
     // a stale snapshot in the window between rerender and effect flush.
@@ -387,7 +397,7 @@ export function useCreateNewSession(params: Readonly<{
         current.setIsCreating(true);
         // This launch owns everything it needs from here, so it outlives the screen. Only navigation
         // below asks whether the screen is still there.
-        if (resolveNewSessionAfterSend({
+        if (!opts?.agentSequence && resolveNewSessionAfterSend({
             configured: current.settings.newSessionAfterSendV1,
             requested: opts?.afterSend,
             automationEnabled: current.authoringDraft?.automation?.enabled === true,
@@ -453,7 +463,21 @@ export function useCreateNewSession(params: Readonly<{
             const sessionPromptText = typeof opts?.inputTextOverride === 'string'
                 ? opts.inputTextOverride
                 : current.promptStore.getPrompt();
-            const shouldSendInitialMessage = (opts?.initialMessage ?? 'send') !== 'skip';
+            const sequence = opts?.agentSequence;
+            const parsedSequence = sequence ? parseComposerAgentSequence(sessionPromptText) : null;
+            if (sequence && (!parsedSequence || parsedSequence.stages.length !== sequence.length
+                || current.transcriptStorage === 'direct' || current.authoringDraft?.automation?.enabled === true
+                || current.automationEditId)) {
+                Modal.alert(t('common.error'), t('agentInput.sequence.unavailable'));
+                current.setIsCreating(false);
+                return;
+            }
+            const sequenceSteps = parsedSequence && sequence ? sequence.map((choice, index) => ({
+                backendTarget: choice.target.backendTarget,
+                modelId: choice.modelId,
+                instructions: parsedSequence.stages[index].instructions,
+            })) : null;
+            const shouldSendInitialMessage = !sequenceSteps && (opts?.initialMessage ?? 'send') !== 'skip';
             const shouldPrepareInitialMessage = shouldSendInitialMessage && sessionPromptText.trim();
             const resolvedInitialMessage = shouldPrepareInitialMessage
                 ? resolveSessionComposerSend({
@@ -591,6 +615,73 @@ export function useCreateNewSession(params: Readonly<{
             const resumeId = !startFreshUnderNewAccount && current.resumeSessionId.trim().length > 0
                 ? current.resumeSessionId.trim()
                 : undefined;
+            const runSequence = async (
+                sessionId: string,
+                expectedCurrentBackendTarget: BackendTargetRefV1,
+                startRequestId: string,
+            ): Promise<void> => {
+                if (!sequenceSteps) return;
+                const receipt = await startSessionAgentSequence({
+                    sessionId, machineId: current.selectedMachineId!, serverId: resolvedTargetServerId,
+                    expectedCurrentBackendTarget,
+                    expectedCurrentAgentId: getBackendTargetAgentId(expectedCurrentBackendTarget),
+                    steps: sequenceSteps, startRequestId,
+                });
+                if (!receipt.ok) throw new Error(receipt.error);
+            };
+            if (sequenceSteps && resumeId && !current.sourceContext) {
+                const resumeCapabilityOptions = { accountSettings: current.settings };
+                const target = resolveHandoffResumeSession({
+                    sessions: Object.values(storage.getState().sessions),
+                    serverId: resolvedTargetServerId, machineId: current.selectedMachineId, agentId: current.agentType,
+                    resumeId,
+                    capabilities: resumeCapabilityOptions,
+                    readServerId: id => resolveServerIdForSessionIdFromLocalCache(id)
+                        ?? (resolvedTargetServerId === snapshot.serverId ? snapshot.serverId : null),
+                });
+                if (target.kind === 'ambiguous') throw new Error(t('agentInput.sequence.unavailable'));
+                if (target.kind === 'existing') {
+                    const session = target.session;
+                    const base = buildResumeSessionBaseOptionsFromSession({
+                        sessionId: session.id, session, resumeCapabilityOptions,
+                    });
+                    if (!base || base.machineId !== current.selectedMachineId) throw new Error(t('session.resumeFailed'));
+                    const draftAddress = { kind: 'newSession' as const, draftId: current.draftId };
+                    const scope = current.draftScope;
+                    const accountAtSend = getActiveNewSessionDraftScope();
+                    const canDispatch = () => isLaunchScopeStillActive()
+                        && (!accountAtSend || areServerAccountScopesEqual(accountAtSend, getActiveNewSessionDraftScope()));
+                    await current.persistDraftForLaunch?.();
+                    if (!canDispatch()) {
+                        current.setIsCreating(false);
+                        return;
+                    }
+                    const draft = scope ? captureSessionDraftCurrentness({ scope, address: draftAddress }) : null;
+                    if (!session.active) {
+                        const resumed = await resumeSession({
+                            ...base, serverId: resolvedTargetServerId,
+                            ...buildResumeSessionExtrasFromUiState({ agentId: current.agentType, settings: current.settings, session }),
+                        });
+                        if (resumed.type === 'error') throw new Error(t('session.resumeFailed'));
+                    }
+                    if (!canDispatch()) {
+                        current.setIsCreating(false);
+                        return;
+                    }
+                    const fingerprint = JSON.stringify([accountAtSend, resolvedTargetServerId, session.id, base.backendTarget, sequenceSteps]);
+                    if (resumeHandoffAttempt.current?.fingerprint !== fingerprint) {
+                        resumeHandoffAttempt.current = { fingerprint, requestId: randomUUID() };
+                    }
+                    await runSequence(session.id, base.backendTarget, resumeHandoffAttempt.current.requestId);
+                    if (mountedRef.current && canDispatch() && current.promptStore.getPrompt() === sessionPromptText) {
+                        if (scope && draft) await clearSessionDraftCurrentness({ scope, address: draftAddress, currentness: draft });
+                        current.setSessionPrompt?.('');
+                        current.router.replace(buildScopedSessionRouteHref({ sessionId: session.id, serverId: resolvedTargetServerId }));
+                    }
+                    current.setIsCreating(false);
+                    return;
+                }
+            }
             const spawnPermissionMode = parsePermissionIntentAlias(current.permissionMode) ?? 'default';
             const spawnPermissionModeUpdatedAt = nowServerMs();
             const normalizedAcpModeId = readNonBlankSessionControlIdentifier(current.acpSessionModeId) ?? '';
@@ -1037,6 +1128,7 @@ export function useCreateNewSession(params: Readonly<{
                     launchAttempt = markNewSessionLaunchAttemptSendingFirstTurn(launchAttempt);
                     launchAttemptRef.current = launchAttempt;
 
+                    await runSequence(createdSessionId, backendTarget, launchAttempt.firstTurnLocalId);
                     if (!handedFirstTurnToDaemon && resolvedInitialMessage) {
                         if (resolvedInitialMessage.kind === 'template') {
                             initialMessageText = await expandPromptTemplateInvocation({

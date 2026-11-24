@@ -22,7 +22,7 @@ describe('agent review suggestions', () => {
 
     it('shows a discovery error and preserves explicit default selection semantics', async () => {
         const unavailable = { ...binding, resolveModels: async () => { throw new Error('offline'); } };
-        const [row] = await resolveAgentReviewSuggestions({ binding: unavailable, query: 'agent:claude/', scopedQuery: 'claude/', scope: 'agent' });
+        const [row] = await resolveAgentReviewSuggestions({ binding: unavailable, query: 'agent:claude/delegate/', scopedQuery: 'claude/delegate/', scope: 'agent' });
         expect(row.agentReview).toEqual({ kind: 'status' });
         expect(row.key).toBe('agentReview:unavailable');
     });
@@ -33,7 +33,11 @@ describe('agent review suggestions', () => {
         expect(agents[0].agentReview).toMatchObject({ kind: 'target', target });
         expect(binding.resolveModels).not.toHaveBeenCalled();
         const token = agents[0].text;
-        const models = await resolveAgentReviewSuggestions({ binding, query: token.slice(1), scopedQuery: token.slice('@agent:'.length), scope: 'agent' });
+        const actions = await resolveAgentReviewSuggestions({ binding, query: token.slice(1), scopedQuery: token.slice('@agent:'.length), scope: 'agent' });
+        expect(actions.map(row => row.agentReview?.kind)).toEqual(['delegate']);
+        expect(binding.resolveModels).not.toHaveBeenCalled();
+        const delegate = actions[0].text;
+        const models = await resolveAgentReviewSuggestions({ binding, query: delegate.slice(1), scopedQuery: delegate.slice('@agent:'.length), scope: 'agent' });
         expect(models.map((option) => option.label)).toEqual(['Provider default', 'Model X']);
         expect(models[1].agentReview).toMatchObject({ kind: 'model', selection: { target, modelId: 'model-x', modelLabel: 'Model X' } });
         expect(models[1].text).toBe(formatAgentReviewMentionToken(target));

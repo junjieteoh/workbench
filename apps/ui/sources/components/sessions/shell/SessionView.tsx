@@ -5278,11 +5278,12 @@ function SessionViewLoaded({
         return sessionAbort(sessionId);
     }, [sessionId]);
     const reviewDraft = useSessionAgentReviewDraft(draftScope, sessionId);
-    const canComposeSequence = Boolean(draftScope && hasWriteAccess && isSessionActive
+    const { armedContinuation, armedContinuationLocalId, armedContinuationSubmission, clearArmedContinuation, onAgentPickerIntent } = inSessionAgentPicker;
+    const canComposeSequence = Boolean(draftScope && hasWriteAccess && (isSessionActive || (isResumable && agentContinuationSource.storageKind === 'persisted'))
         && shouldShowInput && isMachineReachable && !pendingMessageEdit && !recipientState.recipient
         && persistedVoiceComposerRouting?.kind !== 'adapter_text');
-    const canSubmitSequence = canComposeSequence && !armedContinuationTarget;
-    const canAddressReviewer = canSubmitSequence && executionRunsEnabled;
+    const canSubmitSequence = canComposeSequence && !armedContinuationSubmission && pendingTransitionOutcome === 'settled';
+    const canAddressReviewer = canSubmitSequence && isSessionActive && !armedContinuationTarget && executionRunsEnabled;
     const agentBinding = useSessionAgentReviewComposer({
         enabled: canComposeSequence,
         entries: sessionAgentCatalogEntries,
@@ -5295,36 +5296,37 @@ function SessionViewLoaded({
         selection: reviewDraft.mention?.selection ?? null,
         onSelectionChange: reviewDraft.select,
     });
+    const armedFirst = armedContinuation?.selection;
+    const firstTargetKey = armedFirst
+        ? buildBackendTargetKey(armedFirst.backendTarget ?? { kind: 'builtInAgent', agentId: armedFirst.agentId })
+        : sessionAgentCurrentTargetKey;
+    const firstModel = armedFirst ? armedFirst.modelId : modelMode;
+    const firstModelId = firstModel && firstModel !== 'default' ? firstModel : null;
     const sequenceContext = React.useMemo(() => ({
-        currentTargetKey: sessionAgentCurrentTargetKey,
+        currentTargetKey: firstTargetKey,
+        currentModelId: firstModelId,
         scopeKey: JSON.stringify([activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration, agentContinuationMachine.daemonGeneration]),
         resolveModels: agentBinding?.resolveModels,
         successorTargets: inSessionAgentPicker.eligibleSequenceSuccessors.map(entry => ({
             targetKey: entry.targetKey, backendTarget: entry.target, agentId: entry.providerAgentId, label: entry.title,
         })),
-    }), [sessionAgentCurrentTargetKey, activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration,
+    }), [firstTargetKey, firstModelId, activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration,
         agentContinuationMachine.daemonGeneration, agentBinding?.resolveModels, inSessionAgentPicker.eligibleSequenceSuccessors]);
-    const { armedContinuation, armedContinuationLocalId, armedContinuationSubmission, clearArmedContinuation, onAgentPickerIntent } = inSessionAgentPicker;
-    const canStageHandoff = canComposeSequence && !armedContinuationSubmission && pendingTransitionOutcome === 'settled'
+    const canStageHandoff = canSubmitSequence
         && !activeSourceTurnId && agentContinuationSource.storageKind !== 'direct'
         && agentContinuationSource.machinePresence === 'online';
     const agentReviewComposer = React.useMemo(() => {
         if (!agentBinding || (!canAddressReviewer && !canStageHandoff)) return undefined;
-        const armed = armedContinuation?.selection;
-        const firstKey = armed
-            ? buildBackendTargetKey(armed.backendTarget ?? { kind: 'builtInAgent', agentId: armed.agentId })
-            : sessionAgentCurrentTargetKey;
-        const firstTarget = sequenceContext.successorTargets.find(target => target.targetKey === firstKey);
-        const targets = sequenceContext.successorTargets.filter(target => target.targetKey !== firstKey);
-        const model = armed ? armed.modelId : modelMode;
+        const firstTarget = sequenceContext.successorTargets.find(target => target.targetKey === sequenceContext.currentTargetKey);
+        const targets = sequenceContext.successorTargets.filter(target => target.targetKey !== sequenceContext.currentTargetKey);
         return {
             ...agentBinding,
             reviewEnabled: canAddressReviewer,
             handoff: canStageHandoff && firstTarget && targets.length ? {
                 first: {
                     target: firstTarget,
-                    modelId: model && model !== 'default' ? model : null,
-                    modelLabel: armedContinuationTarget?.modelLabel ?? model ?? '',
+                    modelId: sequenceContext.currentModelId,
+                    modelLabel: armedContinuationTarget?.modelLabel ?? sequenceContext.currentModelId ?? '',
                 },
                 targets,
                 onStage: () => {
@@ -5332,8 +5334,8 @@ function SessionViewLoaded({
                 },
             } : undefined,
         };
-    }, [agentBinding, canAddressReviewer, canStageHandoff, armedContinuation, armedContinuationLocalId, clearArmedContinuation,
-        modelMode, armedContinuationTarget?.modelLabel, sessionAgentCurrentTargetKey, sequenceContext.successorTargets]);
+    }, [agentBinding, canAddressReviewer, canStageHandoff, armedContinuationLocalId, clearArmedContinuation,
+        armedContinuationTarget?.modelLabel, sequenceContext]);
     const sequenceAttempt = React.useRef<{ key: string; request: Parameters<typeof startSessionAgentSequence>[0] } | null>(null);
     const sendingSequence = React.useRef(false);
     const sendingReview = React.useRef(false);
@@ -5384,7 +5386,10 @@ function SessionViewLoaded({
             const selected = sendOptions?.agentSequence;
             if (sendingSequence.current) return;
             const selectedMachine = agentContinuationMachine.machineId;
-            if (!selected || !typedSequence || selected.length !== typedSequence.stages.length || !canSubmitSequence || !selectedMachine || activeSourceTurnId
+            const first = selected?.[0];
+            const selectedLeadChanged = typedSequence?.stages[0]?.implied && first
+                && (buildBackendTargetKey(first.target.backendTarget) !== firstTargetKey || first.modelId !== firstModelId);
+            if (selectedLeadChanged || !selected || !typedSequence || selected.length !== typedSequence.stages.length || !canSubmitSequence || !selectedMachine || activeSourceTurnId
                 || agentContinuationSource.storageKind === 'direct' || agentContinuationSource.machinePresence !== 'online'
                 || selected.some(choice => !sequenceContext.successorTargets.some(target => target.targetKey === buildBackendTargetKey(choice.target.backendTarget)))) {
                 Modal.alert(t('common.error'), t('agentInput.sequence.unavailable'));
@@ -5415,11 +5420,16 @@ function SessionViewLoaded({
             setIsComposerSendPending(true);
             fireAndForget((async () => {
                 try {
+                    // Resume the original stored thread only once the user sends its preview.
+                    // A failed resume keeps the draft, the armed selection, and the retry ID.
+                    if (!isSessionActive && !await handleResumeSession()) return;
+                    if (!areServerAccountScopesEqual(activeServerAccountScope, getActiveServerAccountScope())) return;
                     const result = await startSessionAgentSequence(attempt.request);
                     if (!result.ok) {
                         Modal.alert(t('common.error'), result.error);
                         return;
                     }
+                    if (armedContinuationLocalId) clearArmedContinuation(armedContinuationLocalId);
                     if (snapshot && await clearSubmittedDraftAfterFlush(snapshot)) {
                         if (reviewDraft.mention && reviewDraft.isCurrent(reviewDraft.mention)) reviewDraft.select(null);
                         inputComposerClearTransientStateRef.current();
@@ -5458,6 +5468,13 @@ function SessionViewLoaded({
             setIsComposerSendPending(true);
             fireAndForget((async () => {
                 try {
+                    if (address.action !== 'delegate') {
+                        // Older drafts recorded the model without a separate delegation choice.
+                        const label = t('executionRuns.newRun.intents.delegate');
+                        const title = [label, address.selection.target.label, address.selection.modelId ? address.selection.modelLabel : null].filter(Boolean).join(' · ');
+                        const confirmed = await Modal.confirm(title, instructions, { confirmText: label });
+                        if (!confirmed || !reviewDraft.isCurrent(address)) return;
+                    }
                     const result = await reviewDraft.start(address, instructions, capabilityServerId);
                     if (!result.ok) {
                         Modal.alert(t('common.error'), result.error);

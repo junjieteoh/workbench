@@ -1,6 +1,7 @@
 import type { ToolCall } from '@/sync/domains/messages/messageTypes';
 import type { Metadata } from '@/sync/domains/state/storageTypes';
 
+import { readDelegateAssignment } from '@/components/tools/catalog/core/subAgentPresentation';
 import { knownTools } from '@/components/tools/catalog';
 import { inferToolNameForRendering } from '@/components/tools/normalization/policy/toolNameInference';
 import { formatMCPSubtitle, formatMCPTitle } from '@/components/tools/renderers/system/MCPToolView';
@@ -137,7 +138,8 @@ export function resolveToolHeaderTextPresentation(params: {
         }
     }
 
-    subtitle = compactSubAgentRunSubtitle(subtitle, normalizedToolName);
+    const assignment = normalizedToolName === 'SubAgentRun' ? readDelegateAssignment(tool.input) : null;
+    subtitle = assignment ?? compactSubAgentRunSubtitle(subtitle, normalizedToolName);
 
     if (!knownTool) {
         const rawTitle = typeof title === 'string' ? title.trim() : '';

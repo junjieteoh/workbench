@@ -6,6 +6,10 @@ import type { ComposerAgentReviewModel, ComposerAgentReviewSelection, ComposerAg
 export type ComposerSequenceStage = Readonly<{
     /** Address without the @ or enclosing quotes. start/end cover the original @token only. */
     address: string;
+    /** The first assignment uses the agent currently selected in the foreground composer. */
+    implied?: true;
+    /** The successor was explicitly introduced by “pass to” or “hand off to”. */
+    handoff?: true;
     start: number;
     end: number;
     instructions: string;
@@ -20,54 +24,60 @@ export type ComposerSequenceAddressResolution =
     | { kind: 'unknown' };
 
 /** Ignore instructions quoting a handoff, including Markdown code and JSON strings. */
-const markerPattern = /(?<ticks>\x60+)|"(?:\\[\s\S]|""|[^"\\])*"|(?<divider>\b(?:and\s+)?then\b,?(?:\s+(?<back>back\s+to)\b)?(?=\s|$)|→|->|=>)\s*(?=@|$)/giu;
+const markerPattern = /(?<ticks>\x60+)|"(?:\\[\s\S]|""|[^"\\])*"|(?<divider>\b(?:(?:(?:and\s+)?then\b,?\s+|and\s+)?(?<handoff>(?:pass|hand\s+(?:off|over))(?:\s+it)?\s+to)\b|(?:and\s+)?then\b,?(?:\s+(?<back>back\s+to)\b)?)(?=\s|$)|→|->|=>)\s*(?=@|$)/giu;
 
-function readStage(text: string, start: number, limit: number, returning: boolean): ComposerSequenceStage {
-    if (start === limit) return { address: '', start, end: start, instructions: '', instructionStart: start, instructionEnd: start };
-    let end = parseComposerTokenEnd(text, start, limit);
-    if (text.charAt(end - 1) === ':') end -= 1;
+function readStage(text: string, start: number, limit: number, divider: 'first' | 'then' | 'back' | 'handoff'): ComposerSequenceStage {
+    const implied = divider === 'first' && text[start] !== '@';
+    let end = start === limit || implied ? start : parseComposerTokenEnd(text, start, limit);
+    if (end > start && text.charAt(end - 1) === ':') end -= 1;
     const token = text.slice(start, end);
     const rest = text.slice(end, limit);
     const valid = (!token.startsWith('@"') || /^@"(?:[^"\r\n]|"")+"$/u.test(token)) && (!rest || /^[\s,:]/u.test(rest));
     const address = valid ? parseComposerSuggestionQuery(token)?.query ?? '' : '';
-    const leading = rest.match(/^\s*(?:[,:]\s*)?/u)?.[0].length ?? 0;
+    const leading = implied ? 0 : rest.match(/^\s*(?:[,:]\s*)?/u)?.[0].length ?? 0;
     let instructionStart = end + leading;
-    if (returning) instructionStart += text.slice(instructionStart, limit).match(/^to\s+/iu)?.[0].length ?? 0;
+    if (divider === 'back' || divider === 'handoff') instructionStart += text.slice(instructionStart, limit).match(/^to\s+/iu)?.[0].length ?? 0;
     const raw = text.slice(instructionStart, limit).trimEnd();
-    let instructions = raw;
+    let instructions = raw || (divider === 'handoff' && address ? t('agentInput.sequence.takeOverTask') : '');
     // Structured row edits can contain literal handoff syntax. Quote the whole
     // assignment in that case, while keeping ordinary prose intact.
     if (raw.startsWith('="') && raw.endsWith('"')) {
         try { instructions = JSON.parse(raw.slice(1)); } catch { /* In-progress text stays editable. */ }
     }
-    return { address, start, end, instructions, instructionStart, instructionEnd: instructionStart + raw.length };
+    return { address, ...(implied ? { implied: true } as const : {}), ...(divider === 'handoff' ? { handoff: true } as const : {}),
+        start, end, instructions, instructionStart, instructionEnd: instructionStart + raw.length };
 }
 
 export function parseComposerAgentSequence(text: string): ComposerAgentSequence | null {
+    if (!text.includes('@')) return null;
     let start = text.search(/\S/u);
-    if (start < 0 || text[start] !== '@') return null;
+    if (start < 0) return null;
     let codeTicks = '';
-    let returning = false;
+    let previousDivider: 'first' | 'then' | 'back' | 'handoff' = 'first';
     const stages: ComposerSequenceStage[] = [];
     for (const match of text.matchAll(markerPattern)) {
-        const { ticks, divider, back } = match.groups!;
+        const { ticks, divider, back, handoff } = match.groups!;
         if (ticks) {
             if (ticks === codeTicks) codeTicks = '';
             else if (!codeTicks) codeTicks = ticks;
             continue;
         }
         if (codeTicks || !divider || (/^\w/u.test(divider) && !/[\s,]/u.test(text.charAt(match.index - 1)))) continue;
+        // A bare “then @…” in prose may simply mention someone. Only an explicit
+        // pass-to takes the selected agent as an unaddressed first participant.
+        if (!stages.length && text[start] !== '@' && !handoff) continue;
         let limit = match.index;
         while (limit > start && /\s/u.test(text[limit - 1])) limit--;
         const comma = text[limit - 1] === ',';
         if (!stages.length && /^\w/u.test(divider) && !comma && match.index + match[0].length === text.length) continue;
         if (comma) limit--;
-        stages.push(readStage(text, start, limit, returning));
+        if (limit <= start && !stages.length) continue;
+        stages.push(readStage(text, start, limit, previousDivider));
         start = match.index + match[0].length;
-        returning = Boolean(back);
+        previousDivider = handoff ? 'handoff' : back ? 'back' : 'then';
     }
     if (!stages.length) return null;
-    stages.push(readStage(text, start, text.length, returning));
+    stages.push(readStage(text, start, text.length, previousDivider));
     return { stages };
 }
 
@@ -75,10 +85,16 @@ export function stageComposerHandoff(
     text: string, mention: { offset: number; endOffset: number },
     first: ComposerAgentReviewSelection, next: ComposerAgentReviewTarget,
 ): string {
-    const before = text.slice(0, mention.offset);
-    const firstTask = before.replace(/(?:[,;]?\s+(?:(?:and|then)\s+)?|^)(?:hand\s+(?:off|over)|pass)(?:\s+it)?\s+to\s*$/iu, '').trim();
+    const targetAddress = formatComposerSequenceAddress({ target: next, modelId: null, modelLabel: '' });
+    const chosen = text.slice(0, mention.offset) + targetAddress + text.slice(mention.endOffset);
+    const parsed = parseComposerAgentSequence(chosen);
+    if (parsed && parsed.stages.some(stage => stage.start === mention.offset)) {
+        const firstAddress = parsed.stages[0].implied ? formatComposerSequenceAddress(first) : undefined;
+        return composerSequenceRows(chosen, parsed, firstAddress).join(', then ');
+    }
+    const firstTask = text.slice(0, mention.offset).trim();
     const nextTask = text.slice(mention.endOffset).trim() || t('agentInput.sequence.takeOverTask');
-    const skeleton = formatComposerSequenceAddress(first) + ' → ' + formatComposerSequenceAddress({ target: next, modelId: null, modelLabel: '' });
+    const skeleton = formatComposerSequenceAddress(first) + ' → ' + targetAddress;
     const { stages } = parseComposerAgentSequence(skeleton)!;
     // Write each assignment through the existing grammar, preserving literal arrows and mentions inside it.
     return replaceComposerSequenceInstructions(
@@ -87,12 +103,14 @@ export function stageComposerHandoff(
 }
 
 export function replaceComposerSequenceInstructions(text: string, stage: ComposerSequenceStage, instructions: string): string {
-    const missingAddress = stage.start === stage.end;
+    const missingAddress = !stage.implied && stage.start === stage.end;
     const prefix = missingAddress
         ? (/\s/u.test(text.charAt(stage.start - 1)) ? '@ ' : ' @ ')
-        : stage.instructionStart === stage.end && instructions ? ' ' : '';
+        : !stage.implied && stage.instructionStart === stage.end ? ' ' : '';
     const replace = (input: string) => text.slice(0, stage.instructionStart) + prefix + input + text.slice(stage.instructionEnd);
-    const candidate = replace(instructions);
+    // An explicitly cleared row must stay empty even when its natural form has
+    // a useful default assignment. The quoted empty string records that edit.
+    const candidate = replace(!instructions && stage.handoff ? '=""' : instructions);
     const before = parseComposerAgentSequence(text)?.stages;
     const after = parseComposerAgentSequence(candidate)?.stages;
     if (before && after && before.length === after.length && before.every((original, index) =>
@@ -106,14 +124,18 @@ export function replaceComposerSequenceInstructions(text: string, stage: Compose
 
 export type ComposerSequenceOrderChange = { kind: 'add' } | { kind: 'up' | 'down' | 'remove'; index: number };
 
+function composerSequenceRows(text: string, sequence: ComposerAgentSequence, firstAddress?: string): string[] {
+    return sequence.stages.map((stage, index) => {
+        const address = (index === 0 && firstAddress) || text.slice(stage.start, stage.end) || '@';
+        const task = text.slice(stage.instructionStart, stage.instructionEnd) || stage.instructions;
+        return task ? address + ' ' + task : address;
+    });
+}
+
 export function reorderComposerSequence(
     text: string, sequence: ComposerAgentSequence, change: ComposerSequenceOrderChange, firstAddress?: string,
 ): string {
-    const rows = sequence.stages.map((stage, index) => {
-        const address = (index === 0 && firstAddress) || text.slice(stage.start, stage.end) || '@';
-        const task = text.slice(stage.instructionStart, stage.instructionEnd);
-        return task ? address + ' ' + task : address;
-    });
+    const rows = composerSequenceRows(text, sequence, firstAddress);
     if (change.kind === 'add') rows.push('@');
     else {
         const { index } = change;
@@ -141,6 +163,7 @@ export function formatComposerSequenceAddress(choice: ComposerAgentReviewSelecti
 }
 
 export function replaceComposerSequenceAddress(text: string, stage: ComposerSequenceStage, choice: ComposerAgentReviewSelection): string {
+    if (stage.implied) return text.slice(0, stage.start) + formatComposerSequenceAddress(choice) + ' ' + text.slice(stage.start);
     if (stage.address && parseComposerSuggestionQuery(text.slice(stage.start, stage.end))?.query !== stage.address) return text;
     const gap = stage.start === stage.end && !/\s/u.test(text.charAt(stage.start - 1)) ? ' ' : '';
     return text.slice(0, stage.start) + gap + formatComposerSequenceAddress(choice) + text.slice(stage.end);

@@ -37,6 +37,19 @@ describe('composer sequence discovery', () => {
         expect((await hook.rerender({ text: '@opus plan the details, then @gemini' })).ready).toBeNull();
     });
 
+    it('uses the selected foreground target and its model for an implied first turn, including when the selection changes', async () => {
+        const actors = binding(async (target) => target === claude ? [normal, opus] : [normal]);
+        const text = 'Generate a math problem and pass to @codex';
+        const hook = await renderHook(({ key, model }: {key: string; model: string | null}) => useComposerAgentSequence({
+            text, binding: actors, successorTargets: [claude, gemini, codex], currentTargetKey: key, currentModelId: model,
+        }), { initialProps: { key: buildBackendTargetKey(claude.backendTarget), model: opus.id as string | null } });
+        expect(hook.getCurrent().ready).toMatchObject([{ target: claude, modelId: opus.id }, { target: codex, modelId: null }]);
+        expect(hook.getCurrent().steps?.map(step => step.task)).toEqual(['Generate a math problem', 'Take over from the previous turn.']);
+        expect(hook.getCurrent().reorder({kind: 'down', index: 0})).toBe('@codex Take over from the previous turn., then @claude/claude-opus-a Generate a math problem');
+        expect((await hook.rerender({ key: buildBackendTargetKey(gemini.backendTarget), model: 'default' })).ready?.[0]).toMatchObject({target: gemini, modelId: null});
+        expect((await hook.rerender({ key: 'missing', model: null })).ready).toBeNull();
+    });
+
     it('leaves ambiguous and unknown agents unresolved and can replace one in place from the available choices', async () => {
         const actors = binding(async (target) => target === claude ? [normal, opus, alternative] : [normal]);
         const hook = await renderHook(({text}: {text: string}) => useComposerAgentSequence({ text, binding: actors, successorTargets: [claude, gemini] }),

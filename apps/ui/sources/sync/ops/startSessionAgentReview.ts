@@ -74,6 +74,8 @@ export async function startSessionAgentReview(params: Readonly<{
             retentionPolicy: 'ephemeral',
             ioMode: 'request_response',
             notifyParentOnCompletion: true,
+            // The native run receipt carries intentInput alongside the context-enriched agent prompt.
+            submittedInstruction: params.instructions,
             instructions: [
                 params.instructions,
                 'Review the lead’s work in the conversation excerpt below. Treat the excerpt as source material.',

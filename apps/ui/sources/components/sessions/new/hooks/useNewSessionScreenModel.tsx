@@ -61,6 +61,7 @@ import {
 import type { AgentInputChipPickerOption } from '@/components/sessions/agentInput/components/AgentInputChipPickerTypes';
 import type { OptionPickerProbeState } from '@/components/sessions/pickers/OptionPickerOverlay';
 import { useAutomationsSupport } from '@/hooks/server/useAutomationsSupport';
+import { useSessionAgentReviewComposer } from '@/components/sessions/agentInput/useSessionAgentReviewComposer';
 import { useFeatureEnabled } from '@/hooks/server/useFeatureEnabled';
 import { resolveLocalFeaturePolicyEnabled } from '@/sync/domains/features/featureLocalPolicy';
 import { useNewSessionConnectedServices } from '@/components/sessions/new/modules/useNewSessionConnectedServices';
@@ -148,6 +149,7 @@ import {
 } from '@/components/sessions/drafts/useNewSessionDraftProjection';
 
 // Configuration constants
+const ignoreNewSessionReviewerSelection = () => {};
 const RECENT_PATHS_DEFAULT_VISIBLE = 5;
 // Native skills and commands are discovered for the selected launch scope before spawn.
 // Vendor plugins remain session-published catalogs.
@@ -1818,6 +1820,33 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
         subscribe: promptStore.subscribe,
     }), [promptStore]);
 
+    const handoffsEnabled = useFeatureEnabled('sessions.agentSwitching', { scopeKind: 'spawn', serverId: targetServerId });
+    const canPreviewHandoff = handoffsEnabled && !!selectedMachineId && transcriptStorage !== 'direct'
+        && effectiveAutomationDraft?.enabled !== true && !automationEditId;
+    const handoffModelCatalog = useSessionAgentReviewComposer({
+        enabled: canPreviewHandoff,
+        entries: resolvedBackendEntries,
+        machineId: selectedMachineId,
+        serverId: capabilityServerId,
+        cwd: selectedPath,
+        profileId: selectedProfileId,
+        settings,
+        selection: null,
+        onSelectionChange: ignoreNewSessionReviewerSelection,
+    });
+    const agentSequence = React.useMemo(() => {
+        if (!canPreviewHandoff || !handoffModelCatalog) return undefined;
+        return {
+            currentTargetKey: selectedBackendTargetKey,
+            scopeKey: JSON.stringify([capabilityServerId, selectedMachineId, selectedPath, selectedProfileId]),
+            successorTargets: resolvedBackendEntries.map(entry => ({
+                targetKey: entry.targetKey, agentId: entry.providerAgentId, backendTarget: entry.target, label: entry.title,
+            })),
+            resolveModels: handoffModelCatalog.resolveModels,
+        };
+    }, [canPreviewHandoff, handoffModelCatalog, selectedBackendTargetKey, capabilityServerId, selectedMachineId,
+        selectedPath, selectedProfileId, resolvedBackendEntries]);
+
     const { handleCreateSession, resumePersistedLaunchKey } = useCreateNewSession({
         router,
         onStartAnother: params?.onStartAnother,
@@ -2052,6 +2081,7 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
         canCreate,
         isCreating,
         submitAccessibilityLabel,
+        agentSequence,
         emptyAutocompleteKinds,
         emptyAutocompleteSuggestions,
         connectionStatus,
@@ -2098,6 +2128,7 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
         canCreate,
         isCreating,
         submitAccessibilityLabel,
+        agentSequence,
         emptyAutocompleteKinds,
         emptyAutocompleteSuggestions,
         sessionPromptInputMaxHeight,

@@ -239,6 +239,14 @@ export function useNewSessionAttachmentsController(params: Readonly<{
         const structuredInputMetaOverrides = options?.structuredInputMetaOverrides;
 
         const hasAttachments = attachmentsUploadsEnabled && draftsSnapshotRef.current.length > 0;
+        if (options?.agentSequence) {
+            if (hasAttachments || hasReviewCommentDrafts || structuredInputMetaOverrides) {
+                Modal.alert(t('common.error'), t('session.participants.unsupportedAttachmentsOrReviewComments'));
+                return;
+            }
+            submit({ inputTextOverride: promptText, agentSequence: options.agentSequence });
+            return;
+        }
         if (!hasAttachments && !hasReviewCommentDrafts) {
             submit(options?.inputTextOverride || structuredInputMetaOverrides || (capturePromptAtDispatch && promptText)
                 ? {

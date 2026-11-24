@@ -135,13 +135,18 @@ export function useComposerAgentSequence(params: Readonly<{
     // assignment moves. Materialize it when rewriting rows to retain the choice.
     const explicitFirst = first && picked?.modelId && params.text.slice(first.start, first.end) === formatAgentReviewMentionToken(picked.target)
         ? picked : null;
-    const reorder = (change: ComposerSequenceOrderChange) => parsed
-        ? reorderComposerSequence(params.text, parsed, change, explicitFirst ? formatComposerSequenceAddress(explicitFirst) : undefined)
+    const selectedTarget = first?.implied && catalog.find(({ target }) => buildBackendTargetKey(target.backendTarget) === params.currentTargetKey)?.target;
+    const selectedAddress = selectedTarget ? composerSequenceTargetAddress(selectedTarget)
+        + (params.currentModelId && params.currentModelId !== 'default' ? '/' + encodeURIComponent(params.currentModelId) : '') : null;
+    const firstChoice = explicitFirst ? formatComposerSequenceAddress(explicitFirst) : (selectedAddress ? '@' + selectedAddress : undefined);
+    const reorder = (change: ComposerSequenceOrderChange) => parsed && (!first?.implied || firstChoice)
+        ? reorderComposerSequence(params.text, parsed, change, firstChoice)
         : null;
     if (!parsed) return { parsed, ready: null, steps: null, options, status: 'idle', replace, edit, reorder };
     const results = parsed.stages.map((stage, index) => {
-        const address = index === 0 && explicitFirst
-            ? composerSequenceTargetAddress(explicitFirst.target) + '/' + encodeURIComponent(explicitFirst.modelId!)
+        if (stage.implied && !selectedAddress) return { status: (machine ? 'unavailable' : 'loading') as ComposerSequenceStatus, choice: null };
+        const address = stage.implied ? selectedAddress!
+            : index === 0 && explicitFirst ? composerSequenceTargetAddress(explicitFirst.target) + '/' + encodeURIComponent(explicitFirst.modelId!)
             : stage.address;
         return inspectAddress(address, catalog, machine, params.currentTargetKey, params.currentModelId);
     });
