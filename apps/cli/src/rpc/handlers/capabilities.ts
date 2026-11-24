@@ -685,11 +685,17 @@ export async function createCliCapabilitiesService(options?: CliCapabilitiesOpti
         descriptor: { id: 'tool.sessionAgentTransition', kind: 'tool', title: 'Agent transitions' },
         // The machine process installs its transition handler after registering
         // shared capabilities. Check the actual owner at detection time.
-        detect: async () => ({
-            supportsInputPermissionIntent: hasSessionAgentTransition(),
-            ...(options?.hasSessionAgentTurnSequence ? { supportsAgentTurnSequence: options.hasSessionAgentTurnSequence() } : {}),
-            ...(options?.hasSessionAgentSequence ? { supportsAgentSequence: options.hasSessionAgentSequence() } : {}),
-        }),
+        detect: async () => {
+            const supportsTurnSequence = options?.hasSessionAgentTurnSequence?.();
+            return {
+                supportsInputPermissionIntent: hasSessionAgentTransition(),
+                ...(supportsTurnSequence !== undefined ? {
+                    supportsAgentTurnSequence: supportsTurnSequence,
+                    supportsAgentSingleTurnSequence: supportsTurnSequence,
+                } : {}),
+                ...(options?.hasSessionAgentSequence ? { supportsAgentSequence: options.hasSessionAgentSequence() } : {}),
+            };
+        },
     }] : [];
 
     return createCapabilitiesService({

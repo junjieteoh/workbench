@@ -58,6 +58,22 @@ describe('submit an ordered sequence of foreground turns', () => {
         expect(submit).toHaveBeenCalledTimes(1);
     });
 
+    it('requires explicit one-turn support and sends one selected reply on an upgraded worker', async () => {
+        const reply = { ...input, steps: [input.steps[0]] };
+        expect((await startSessionAgentSequence(reply)).ok).toBe(false);
+        expect(submit).not.toHaveBeenCalled();
+        detect.mockResolvedValue({
+            supported: true,
+            response: { results: { 'tool.sessionAgentTransition': {
+                ok: true, data: { supportsAgentTurnSequence: true, supportsAgentSingleTurnSequence: true },
+            } } },
+        });
+        expect(await startSessionAgentSequence(reply)).toEqual({ ok: true });
+        expect(submit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            request: expect.objectContaining({ steps: reply.steps }),
+        }));
+    });
+
     it('does not silently accept or replay an uncertain dispatch', async () => {
         submit.mockRejectedValue(new Error('Lost response'));
         expect((await startSessionAgentSequence(input)).ok).toBe(false);

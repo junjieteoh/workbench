@@ -52,7 +52,7 @@ import { ComposerSequencePreview } from './sequence/ComposerSequencePreview';
 import { useComposerAgentSequence } from './sequence/useComposerAgentSequence';
 import { parseComposerAgentSequence, stageComposerHandoff } from './sequence/composerAgentSequence';
 import type { ComposerAgentReviewTarget } from './agentReviewComposer';
-import { applyAgentReviewChoice, findAgentReviewToken, removeAgentReviewToken, type AgentReviewComposerBinding } from './agentReviewComposer';
+import { applyAgentReviewChoice, applyComposerReplyChoice, findAgentReviewToken, removeAgentReviewToken, replyModelSearchTargets, type AgentReviewComposerBinding } from './agentReviewComposer';
 import { buildAgentInputSendMenuItems } from './agentInputSendOptions';
 import { Theme } from '@/theme';
 import { t } from '@/text';
@@ -1831,15 +1831,33 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         };
     }, [enterToSendEnabled, isInputFocused, props.disabled]);
 
+    const [editingSequenceText, setEditingSequenceText] = React.useState(false);
+    const addressedReply = sequence.parsed?.stages[0]?.addressed === true;
+    const showStructuredComposer = hasSequence && !editingSequenceText && (addressedReply || !isInputFocused);
+    React.useEffect(() => {
+        if (!hasSequence) setEditingSequenceText(false);
+    }, [hasSequence]);
+
     const activeWord = activeWordState?.activeWord ?? null;
-    const activeHandoffAddress = sequence.parsed?.stages.some(stage => stage.handoff && activeWordState?.offset === stage.start) === true;
+    const activeHandoffAddress = !!sequence.parsed && sequence.parsed.stages.length > 1
+        && sequence.parsed.stages.some(stage => !stage.implied && activeWordState?.offset === stage.start);
     const activeSuggestionQuery = isInputFocused && hasAutocompleteTextInteraction && !props.disabled && (!hasSequence || activeHandoffAddress) ? activeWord : null;
+    // Refresh this same token when one machine provider has answered and another is still probing.
+    const [modelCatalogRevision, refreshModelChoices] = React.useReducer((value: number) => value + 1, 0);
+    const reviewBinding = props.agentReview;
+    React.useEffect(() => {
+        if (!reviewBinding?.subscribeModels || !activeSuggestionQuery?.startsWith('@')) return;
+        const query = activeSuggestionQuery.slice(1);
+        if (query.startsWith('agent:') || reviewBinding.matchesTargetPrefix(query)) return;
+        const targets = replyModelSearchTargets(query, reviewBinding.replyTargets);
+        if (targets.length) return reviewBinding.subscribeModels(targets, refreshModelChoices);
+    }, [reviewBinding, activeSuggestionQuery]);
     const resolveSuggestions = React.useCallback<ActiveSuggestionsHandler>(async (query, signal) => {
         const suggestions = await props.autocompleteSuggestions(query, signal);
         if (!activeHandoffAddress) return suggestions;
         return suggestions.filter(({ agentReview }) => agentReview &&
-            (agentReview.kind === 'target' || agentReview.kind === 'handoff' || agentReview.kind === 'open' || agentReview.kind === 'status'));
-    }, [props.autocompleteSuggestions, activeHandoffAddress]);
+            (agentReview.kind === 'target' || agentReview.kind === 'handoff' || agentReview.kind === 'reply' || agentReview.kind === 'open' || agentReview.kind === 'status'));
+    }, [props.autocompleteSuggestions, activeHandoffAddress, modelCatalogRevision]);
     // Selection follows candidate identity, not an index (INV-6) — the hook owns that.
     const [resolvedSuggestions, selected, moveUp, moveDown, resolvedSuggestionQuery] = useActiveSuggestions(activeSuggestionQuery, resolveSuggestions, { wrapAround: true });
 
@@ -1885,6 +1903,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             const bound = props.agentReview;
             if (!bound || action.kind === 'status' || !activeWordForSelection
                 || activeWordForSelection.activeWord.slice(1) !== suggestion.agentReviewQuery) return;
+            if (action.kind === 'reply') {
+                applyResolvedSelection(applyComposerReplyChoice(currentInputState.text, activeWordForSelection, action.selection, bound.selection?.target));
+                if (bound.selection) bound.onSelectionChange(null);
+                hapticsLight();
+                return;
+            }
             if (action.kind === 'handoff') {
                 const handoff = bound.handoff;
                 if (!handoff) return;
@@ -2905,7 +2929,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         onEnvVarsPress: handleEnvVarsPress,
         // The engine chip names what runs NEXT, so it follows the armed target.
         agentId: engineChipMarkAgentId,
-        hasAgentSelection: hasAgent,
+        hasAgentSelection: hasAgent && !hasSequence,
         agentChipAnchorRef,
         agentLabel: resolvedAgentLabel,
         engineLabel: engineChipLabel,
@@ -3093,7 +3117,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             ref={composerAnchorRef}
             collapsable={false}
             testID="agent-input-composer-input-container"
-            style={[styles.inputContainer, props.minHeight ? { minHeight: props.minHeight } : undefined]}
+            style={[styles.inputContainer, props.minHeight ? { minHeight: props.minHeight } : undefined,
+                showStructuredComposer ? { display: 'none' } : null]}
             onLayout={(event) => {
                 updateNullableLayoutHeight(setInputContainerHeightPx, event.nativeEvent.layout.height);
             }}
@@ -3273,7 +3298,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         canStop={canStopFromComposer}
                         micPressHandler={micPressHandler}
                         micActive={micActive}
-                        armedContinuationTarget={props.armedContinuationTarget ?? null}
+                        armedContinuationTarget={hasSequence ? null : props.armedContinuationTarget ?? null}
                         onSend={handleSend}
                         sendMenuItems={sendMenuItems}
                         onStop={handleAbortPress}
@@ -3370,10 +3395,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             {sequence.steps ? (
                 <ComposerSequencePreview
                     steps={sequence.steps}
+                    focusTask={showStructuredComposer && addressedReply ? sequence.steps.length - 1 : undefined}
+                    replyLabel={t('agentInput.agentReview.reply')}
+                    onSubmitReply={enterToSendEnabled ? () => handleSend() : undefined}
+                    onRemoveReply={sequence.steps.length === 1 ? () => {
+                        applySequenceEdit(sequence.steps?.[0]?.task ?? '', true);
+                        requestAnimationFrame(() => inputRef.current?.focus());
+                    } : undefined}
                     options={sequence.options}
                     status={sequence.status === 'loading' ? t('agentInput.sequence.loading')
                         : sequence.status === 'unavailable' ? t('agentInput.sequence.unavailable')
-                        : sequence.status === 'incomplete' ? t('agentInput.sequence.incomplete')
+                        : sequence.status === 'incomplete' && sequence.steps?.length !== 1 ? t('agentInput.sequence.incomplete')
                         : sequence.status === 'unknown' || sequence.status === 'ambiguous' ? t('agentInput.sequence.unknown')
                         : undefined}
                     disabled={Boolean(props.disabled || props.isSending)}
@@ -3381,6 +3413,15 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     onTaskChange={(index, task) => applySequenceEdit(sequence.edit(index, task))}
                     onOrderChange={change => applySequenceEdit(sequence.reorder(change), true)}
                 />
+            ) : null}
+            {showStructuredComposer && !addressedReply ? (
+                <View style={{ alignSelf: 'flex-start' }}>
+                    <RoundButton size="small" testID="composer-sequence-edit-text" title={t('common.edit')}
+                        disabled={Boolean(props.disabled || props.isSending)} onPress={() => {
+                            setEditingSequenceText(true);
+                            requestAnimationFrame(() => inputRef.current?.focus());
+                        }} />
+                </View>
             ) : null}
             {!hasSequence && props.agentReview?.selection ? (
                 <View style={{ alignSelf: 'flex-start' }}>

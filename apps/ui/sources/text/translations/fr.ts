@@ -6619,6 +6619,7 @@ export const fr: TranslationStructure = {
         // Section headers for the composer suggestion picker. One per suggestion
         // kind; the registry maps kind -> key, mirroring markdown.slash.groups.*.
         agentReview: {
+            reply: "Répondre dans cette discussion",
             cachedModels: "Liste enregistrée · actualisation indisponible",
             catalogModels: "Catalogue du fournisseur · recherche en direct indisponible",
             group: "Agents",

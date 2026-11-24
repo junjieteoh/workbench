@@ -105,6 +105,7 @@ export type NewSessionSimplePanelProps = Readonly<{
     handleCreateSession: (opts?: HandleCreateSessionOptions) => void;
     canCreate: boolean;
     isCreating: boolean;
+    agentReview?: React.ComponentProps<typeof AgentInput>['agentReview'];
     agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence'];
     emptyAutocompleteKinds: React.ComponentProps<typeof AgentInput>['autocompleteKinds'];
     emptyAutocompleteSuggestions: React.ComponentProps<typeof AgentInput>['autocompleteSuggestions'];
@@ -518,6 +519,7 @@ function NewSessionSimplePanelComposer({
                         isSending={props.isCreating}
                         disabled={props.isCreating}
                         placeholder={t('session.inputPlaceholder')}
+                        agentReview={props.agentReview}
                         agentSequence={props.agentSequence}
                         autocompleteKinds={props.emptyAutocompleteKinds}
                         autocompleteSuggestions={props.emptyAutocompleteSuggestions}

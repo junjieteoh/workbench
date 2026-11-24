@@ -167,6 +167,7 @@ export interface NewSessionWizardFooterProps {
     canCreate: boolean;
     isCreating: boolean;
     submitAccessibilityLabel?: React.ComponentProps<typeof AgentInput>['submitAccessibilityLabel'];
+    agentReview?: React.ComponentProps<typeof AgentInput>['agentReview'];
     agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence'];
     emptyAutocompleteKinds: React.ComponentProps<typeof AgentInput>['autocompleteKinds'];
     emptyAutocompleteSuggestions: React.ComponentProps<typeof AgentInput>['autocompleteSuggestions'];
@@ -583,6 +584,7 @@ export const NewSessionWizard = React.memo(function NewSessionWizard(props: NewS
                                         disabled={isCreating}
                                         submitAccessibilityLabel={props.footer.submitAccessibilityLabel}
                                         placeholder={t('session.inputPlaceholder')}
+                                        agentReview={props.footer.agentReview}
                                         agentSequence={props.footer.agentSequence}
                                         autocompleteKinds={emptyAutocompleteKinds}
                                         autocompleteSuggestions={emptyAutocompleteSuggestions}

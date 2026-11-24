@@ -41,7 +41,7 @@ export const SessionAgentTurnSequenceRequestV1Schema = lazySchema(() => z.strict
     sessionId: z.string().trim().min(1),
     localId: PendingLocalIdSchema,
     expectedCurrentBackendTarget: BackendTargetRefSchema,
-    steps: z.array(SequenceStepV1Schema).min(2),
+    steps: z.array(SequenceStepV1Schema).min(1),
 }));
 export type SessionAgentTurnSequenceRequestV1 = z.infer<typeof SessionAgentTurnSequenceRequestV1Schema>;
 

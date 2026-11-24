@@ -7284,6 +7284,7 @@ localTailscale: {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}。選択中。`,
       },
     agentReview: {
+        reply: "このチャットで返信",
         cachedModels: "保存済みモデル一覧 · 更新できません",
         catalogModels: "プロバイダーのカタログ · ライブ検索は利用できません",
         group: "エージェント",

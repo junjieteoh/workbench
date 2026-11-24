@@ -1847,6 +1847,19 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
     }, [canPreviewHandoff, handoffModelCatalog, selectedBackendTargetKey, capabilityServerId, selectedMachineId,
         selectedPath, selectedProfileId, resolvedBackendEntries]);
 
+    const agentReview = React.useMemo(() => agentSequence && handoffModelCatalog ? ({
+        ...handoffModelCatalog, reviewEnabled: false, replyTargets: agentSequence.successorTargets,
+    }) : undefined, [agentSequence, handoffModelCatalog]);
+    const composerAutocompleteKinds = React.useMemo<readonly ComposerSuggestionKindId[]>(() => agentReview
+        ? [...emptyAutocompleteKinds, 'agentReview'] : emptyAutocompleteKinds, [agentReview, emptyAutocompleteKinds]);
+    const composerAutocompleteSuggestions = React.useCallback((query: string, signal: AbortSignal) => {
+        if (!agentReview || !query.startsWith('@')) return emptyAutocompleteSuggestions(query, signal);
+        return getSuggestions(null, query, {
+            kinds: composerAutocompleteKinds, serverId: targetServerId, workspace: composerWorkspace,
+            catalogs: preflightComposerCatalogs, loadCatalogs: loadComposerCatalogs?.read, signal, agentReview,
+        });
+    }, [agentReview, composerAutocompleteKinds, composerWorkspace, emptyAutocompleteSuggestions, loadComposerCatalogs, preflightComposerCatalogs, targetServerId]);
+
     const { handleCreateSession, resumePersistedLaunchKey } = useCreateNewSession({
         router,
         onStartAnother: params?.onStartAnother,
@@ -2081,9 +2094,10 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
         canCreate,
         isCreating,
         submitAccessibilityLabel,
+        agentReview,
         agentSequence,
-        emptyAutocompleteKinds,
-        emptyAutocompleteSuggestions,
+        emptyAutocompleteKinds: composerAutocompleteKinds,
+        emptyAutocompleteSuggestions: composerAutocompleteSuggestions,
         connectionStatus,
         machinePopover,
         resumeSessionId,
@@ -2128,9 +2142,10 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string; o
         canCreate,
         isCreating,
         submitAccessibilityLabel,
+        agentReview,
         agentSequence,
-        emptyAutocompleteKinds,
-        emptyAutocompleteSuggestions,
+        emptyAutocompleteKinds: composerAutocompleteKinds,
+        emptyAutocompleteSuggestions: composerAutocompleteSuggestions,
         sessionPromptInputMaxHeight,
         agentType,
         agentLabel,

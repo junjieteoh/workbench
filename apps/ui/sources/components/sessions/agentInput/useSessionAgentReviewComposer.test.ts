@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@/dev/testkit/hooks/renderHook';
 import { getResolvedBackendCatalogEntries } from '@/agents/backendCatalog/getResolvedBackendCatalogEntries';
 import { settingsDefaults } from '@/sync/domains/settings/settings';
+import { writeDynamicModelProbeCacheSuccess } from '@/sync/domains/models/dynamicModelProbeCache';
 import { useSessionAgentReviewComposer } from './useSessionAgentReviewComposer';
 
 const { prefetch, snapshot, discover } = vi.hoisted(() => ({ prefetch: vi.fn(), snapshot: vi.fn(), discover: vi.fn() }));
@@ -40,6 +41,16 @@ describe('machine-scoped review mentions', () => {
             machineId: 'machine-a', serverId: 'relay-a', backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
             capabilityParams: expect.objectContaining({ profileId: 'work', cwd: '/project' }),
         }));
+        const onObserved = vi.fn();
+        const unsubscribe = binding.subscribeModels!([targets[0]], onObserved);
+        const probeKey = discover.mock.calls.at(-1)![0].cacheKey;
+        const observed = { availableModels: [{ id: 'observed', name: 'Machine model' }], supportsFreeform: false };
+        writeDynamicModelProbeCacheSuccess(probeKey, observed);
+        expect(onObserved).toHaveBeenCalledOnce();
+        expect(binding.peekModels!(targets[0])).toContainEqual({ id: 'observed', label: 'Machine model' });
+        unsubscribe();
+        writeDynamicModelProbeCacheSuccess(probeKey, observed);
+        expect(onObserved).toHaveBeenCalledOnce();
         const value = { availableModels: [{ id: 'retained', name: 'Retained model' }], supportsFreeform: false };
         discover.mockResolvedValue({ kind: 'success', value, errorUpdatedAt: 12, updatedAt: 10 });
         expect(await binding.resolveModels(targets[0])).toContainEqual({ id: 'retained', label: 'Retained model', source: 'cached' });

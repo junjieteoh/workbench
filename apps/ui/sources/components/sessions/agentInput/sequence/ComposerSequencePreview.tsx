@@ -20,12 +20,19 @@ type Props = Readonly<{
     onOrderChange: (change: ComposerSequenceOrderChange) => void;
     status?: string;
     disabled?: boolean;
+    focusTask?: number;
+    replyLabel?: string;
+    onRemoveReply?: () => void;
+    onSubmitReply?: () => void;
 }>;
 
-function SequenceStep({ step, index, count, options, disabled, onAgentChange, onTaskChange, onOrderChange }: Readonly<{
+function SequenceStep({ step, index, count, options, disabled, focused, replyLabel, onSubmitReply, onAgentChange, onTaskChange, onOrderChange }: Readonly<{
     step: ComposerSequenceStep;
     index: number;
     count: number;
+    focused?: boolean;
+    replyLabel?: string;
+    onSubmitReply?: () => void;
     onOrderChange: Props['onOrderChange'];
     options: readonly ComposerSequenceOption[];
     disabled?: boolean;
@@ -33,7 +40,11 @@ function SequenceStep({ step, index, count, options, disabled, onAgentChange, on
     onTaskChange: Props['onTaskChange'];
 }>) {
     const { theme } = useUnistyles();
-    const label = t('agentInput.sequence.turn', { index: index + 1 });
+    const label = count === 1 && replyLabel ? replyLabel : t('agentInput.sequence.turn', { index: index + 1 });
+    const taskRef = React.useRef<{ focus(): void } | null>(null);
+    React.useEffect(() => {
+        if (focused && !disabled) taskRef.current?.focus();
+    }, [focused, disabled]);
     const agentLabel = step.agentLabel === '@' ? t('agentInput.agentReview.choose') : step.agentLabel;
     const [open, setOpen] = React.useState(false);
     const [orderOpen, setOrderOpen] = React.useState(false);
@@ -81,6 +92,10 @@ function SequenceStep({ step, index, count, options, disabled, onAgentChange, on
                 />
             </View>
             <TextInput
+                ref={taskRef}
+                submitBehavior={count === 1 && onSubmitReply ? 'submit' : 'newline'}
+                onSubmitEditing={count === 1 ? onSubmitReply : undefined}
+                selectTextOnFocus={focused && index > 0 && step.task === t('agentInput.sequence.takeOverTask')}
                 testID={`composer-sequence-task-${index}`}
                 accessibilityLabel={label + ' · ' + t('executionRuns.newRun.sections.instructions')}
                 placeholder={t('executionRuns.newRun.sections.instructions')}
@@ -91,7 +106,7 @@ function SequenceStep({ step, index, count, options, disabled, onAgentChange, on
                 onChangeText={value => onTaskChange(index, value)}
                 style={styles.task}
             />
-            <DropdownMenu
+            {count > 1 ? <DropdownMenu
                 open={!disabled && orderOpen}
                 onOpenChange={setOrderOpen}
                 variant="slim" placement="auto-vertical" matchTriggerWidth={false}
@@ -110,24 +125,30 @@ function SequenceStep({ step, index, count, options, disabled, onAgentChange, on
                         <Icon name="dots-three" size={ICON_SIZE.sm} color={theme.colors.text.secondary} />
                     </Pressable>
                 )}
-            />
+            /> : null}
         </View>
     );
 }
 
-export function ComposerSequencePreview({ steps, options, onAgentChange, onTaskChange, onOrderChange, status, disabled }: Props) {
+export function ComposerSequencePreview({ steps, options, onAgentChange, onTaskChange, onOrderChange, status, disabled, focusTask, replyLabel, onRemoveReply, onSubmitReply }: Props) {
     return (
         <View testID="sequence-preview" style={styles.preview}>
             <ScrollView keyboardShouldPersistTaps="handled" style={styles.rows}>
                 {steps.map((step, index) => (
                 <SequenceStep key={index} step={step} index={index} options={options} count={steps.length} onOrderChange={onOrderChange}
-                    onAgentChange={onAgentChange} onTaskChange={onTaskChange} disabled={disabled} />
+                    onAgentChange={onAgentChange} onTaskChange={onTaskChange} disabled={disabled} focused={focusTask === index} replyLabel={replyLabel} onSubmitReply={onSubmitReply} />
                 ))}
             </ScrollView>
             <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled}
                 onPress={() => onOrderChange({ kind: 'add' })} testID="composer-sequence-add" style={styles.addTrigger}>
                 <Text style={styles.stageLabel}>{t('agentInput.sequence.addTurn')}</Text>
             </Pressable>
+            {steps.length === 1 && onRemoveReply ? (
+                <Pressable accessibilityRole="button" disabled={disabled} onPress={onRemoveReply}
+                    testID="composer-reply-remove" style={styles.addTrigger}>
+                    <Text style={styles.stageLabel}>{t('common.remove')}</Text>
+                </Pressable>
+            ) : null}
             {status ? <Text accessibilityLiveRegion="polite" style={styles.status}>{status}</Text> : null}
         </View>
     );

@@ -7022,6 +7022,7 @@ export const pl: TranslationStructure = {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Wybrano.`,
       },
     agentReview: {
+        reply: "Odpowiedz na tym czacie",
         cachedModels: "Zapisana lista modeli · odświeżanie niedostępne",
         catalogModels: "Katalog dostawcy · wyszukiwanie na żywo niedostępne",
         group: "Agenci",

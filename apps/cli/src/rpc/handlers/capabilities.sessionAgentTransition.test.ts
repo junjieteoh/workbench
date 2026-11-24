@@ -29,13 +29,14 @@ describe('Agent transition input permission capability', () => {
       scopePrefix: 'machine-capabilities',
       registerHandlers: (rpcManager) => registerCapabilitiesHandlers(rpcManager, {
         hasSessionAgentTransition: () => rpcManager.hasHandler(RPC_METHODS.SESSION_AGENT_TRANSITION),
+        hasSessionAgentTurnSequence: () => rpcManager.hasHandler(RPC_METHODS.SESSION_AGENT_TRANSITION),
       }),
     });
 
     const beforeRegistration = await call<CapabilitiesDetectResponse, CapabilitiesDetectRequest>(RPC_METHODS.CAPABILITIES_DETECT, request);
     expect(beforeRegistration.results['tool.sessionAgentTransition']).toMatchObject({
       ok: true,
-      data: { supportsInputPermissionIntent: false },
+      data: { supportsInputPermissionIntent: false, supportsAgentTurnSequence: false, supportsAgentSingleTurnSequence: false },
     });
 
     // Registration is the RPC transport boundary under test; this handler is
@@ -45,7 +46,7 @@ describe('Agent transition input permission capability', () => {
     const afterRegistration = await call<CapabilitiesDetectResponse, CapabilitiesDetectRequest>(RPC_METHODS.CAPABILITIES_DETECT, request);
     expect(afterRegistration.results['tool.sessionAgentTransition']).toMatchObject({
       ok: true,
-      data: { supportsInputPermissionIntent: true },
+      data: { supportsInputPermissionIntent: true, supportsAgentTurnSequence: true, supportsAgentSingleTurnSequence: true },
     });
   });
 });

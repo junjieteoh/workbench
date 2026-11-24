@@ -126,8 +126,20 @@ export function useComposerAgentSequence(params: Readonly<{
     }, [parsed, params.text, choices]);
     const edit = React.useCallback((index: number, instructions: string) => {
         const stage = parsed?.stages[index];
-        return stage ? replaceComposerSequenceInstructions(params.text, stage, instructions) : null;
-    }, [parsed, params.text]);
+        if (!stage) return null;
+        if (stage.addressed && parsed?.stages.length === 1) {
+            // In reply mode the task field is the composer. Let a completed
+            // pass-to address turn it into an ordered plan. Until the address
+            // resolves, leave the full text and caret in that field.
+            const candidate = params.text.slice(0, stage.end) + ' ' + instructions;
+            const expanded = parseComposerAgentSequence(candidate);
+            const successor = expanded?.stages[1];
+            const validHandoff = successor?.handoff && expanded?.stages.slice(1).every(turn =>
+                inspectAddress(turn.address, catalog, machine).status === 'ready');
+            if (validHandoff) return candidate;
+        }
+        return replaceComposerSequenceInstructions(params.text, stage, instructions);
+    }, [catalog, machine, parsed, params.text]);
 
     const first = parsed?.stages[0];
     const picked = params.binding?.selection;
