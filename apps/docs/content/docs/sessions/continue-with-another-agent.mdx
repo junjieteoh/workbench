@@ -38,6 +38,15 @@ conversation ID. This development behavior requires a supporting CLI; older
 CLIs retain their existing built-in behavior while configured continuation
 remains unavailable.
 
+## Run several turns in order
+
+On a compatible Workbench worker, type a task ending in an agent mention,
+select the agent, and choose **Hand off**. You can also type an ordered list
+of turns, such as `@claude draft this, then @gemini review it,
+then back to @claude revise it`. Check the agent, model, and instruction in
+each row before you send. Happier waits for each turn to complete and shows
+the replies in the original thread.
+
 ## Arm an Agent, then send
 
 Selecting another Agent **arms** it. There is no separate confirm step:

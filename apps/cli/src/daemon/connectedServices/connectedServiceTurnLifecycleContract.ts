@@ -15,9 +15,11 @@ export const ConnectedServiceTurnLifecycleRequestBodySchema = lazySchema(() => z
     'assistant_message_end',
     'turn_cancelled',
     'provider_identity_observed',
+    'sequence_input_blocked',
   ]),
   terminalStatus: z.enum(['completed', 'failed']).optional(),
   turnId: z.string().trim().min(1).max(512).optional(),
+  sequenceInput: z.object({ runnerPid: z.number().int().positive(), localIds: z.array(z.string().min(1)).min(1) }).strict().optional(),
   requestedAction: PendingRequestedActionV1Schema.optional(),
   activeTurnId: z.string().trim().min(1).max(512).nullable().optional(),
   providerIdentity: z.object({

@@ -6980,6 +6980,17 @@ export const es: TranslationStructure = {
   },
 
   agentInput: {
+        sequence: {
+            handOff: "Traspasar",
+            takeOverTask: "Toma el relevo del turno anterior.",
+            turn: ({ index }: { index: number }) => `Turno ${index}`,
+            addTurn: "Añadir turno",
+            incomplete: "Elige un agente y añade instrucciones para cada turno.",
+            loading: "Cargando agentes…",
+            unknown: "Elige un agente para cada paso.",
+            unavailable: "Estos agentes no están disponibles para el relevo.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Cambiar de agente.`,
+        },
       keepKeyboard: { label: "Mantener el teclado abierto al enviar" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} de ${total}`,
       sendOptions: {
@@ -6995,8 +7006,8 @@ export const es: TranslationStructure = {
     agentReview: {
         cachedModels: "Lista guardada · actualización no disponible",
         catalogModels: "Catálogo del proveedor · consulta en vivo no disponible",
-        group: "Agentes de revisión",
-        choose: "Pedir una revisión a un agente…",
+        group: "Agentes",
+        choose: "Elegir un agente…",
         none: "Sin coincidencias",
         unavailable: "No se pudieron cargar las opciones de este equipo",
         review: "Revisión",

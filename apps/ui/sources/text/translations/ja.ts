@@ -7260,6 +7260,17 @@ localTailscale: {
   },
 
   agentInput: {
+      sequence: {
+          handOff: "引き継ぐ",
+          takeOverTask: "前のターンの作業を引き継いでください。",
+          turn: ({ index }: { index: number }) => `ターン ${index}`,
+          addTurn: "ターンを追加",
+          incomplete: "各ターンにエージェントと指示を指定してください。",
+          loading: "エージェントを読み込み中…",
+          unknown: "各ステップのエージェントを選択してください。",
+          unavailable: "これらのエージェント間では引き継ぎできません。",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}、${agent}。エージェントを変更。`,
+      },
       keepKeyboard: { label: "送信後もキーボードを開いたままにする" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} / ${total}`,
       sendOptions: {
@@ -7275,8 +7286,8 @@ localTailscale: {
     agentReview: {
         cachedModels: "保存済みモデル一覧 · 更新できません",
         catalogModels: "プロバイダーのカタログ · ライブ検索は利用できません",
-        group: "レビュー担当エージェント",
-        choose: "エージェントにレビューを依頼…",
+        group: "エージェント",
+        choose: "エージェントを選択…",
         none: "該当なし",
         unavailable: "この端末から選択肢を取得できませんでした",
         review: "レビュー",

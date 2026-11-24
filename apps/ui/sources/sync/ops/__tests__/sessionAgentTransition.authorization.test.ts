@@ -9,7 +9,7 @@ vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', (
     machineRpcWithServerScope: mockMachineRpcWithServerScope,
 }));
 
-import { runSessionAgentTransitionOnMachine, sessionAgentTransitionQueueOnMachine } from '../sessionAgentTransition';
+import { runSessionAgentTransitionOnMachine, sessionAgentTransitionQueueOnMachine, sessionAgentTurnSequenceOnMachine } from '../sessionAgentTransition';
 
 function buildRequest(sessionId: string) {
     return {
@@ -84,5 +84,30 @@ it('addresses the native queue as an editable session and never interprets an ol
         method: RPC_METHODS.SESSION_AGENT_TRANSITION,
         authorization: { kind: SOCKET_RPC_AUTHORIZATION_CONTEXT_KINDS.SESSION_WRITE, sessionId: 'session-a' },
         payload: { action: 'get', sessionId: 'session-a' },
+    }));
+});
+
+it('routes a foreground sequence through the existing Session-write authorization', async () => {
+    const claude = { kind: 'builtInAgent', agentId: 'claude' } as const;
+    const gemini = { kind: 'builtInAgent', agentId: 'gemini' } as const;
+    mockMachineRpcWithServerScope.mockResolvedValueOnce({ status: 'started' });
+    await expect(sessionAgentTurnSequenceOnMachine({
+        machineId: 'm1',
+        serverId: 's1',
+        request: {
+            action: 'turn_sequence', sessionId: '  session-a  ', localId: 'sequence-a', expectedCurrentBackendTarget: claude,
+            steps: [
+                { backendTarget: claude, modelId: null, instructions: 'Draft' },
+                { backendTarget: gemini, modelId: 'chosen', instructions: 'Review' },
+                { backendTarget: claude, modelId: null, instructions: 'Revise' },
+            ],
+        },
+    })).resolves.toEqual({ status: 'started' });
+    expect(mockMachineRpcWithServerScope).toHaveBeenLastCalledWith(expect.objectContaining({
+        method: RPC_METHODS.SESSION_AGENT_TRANSITION,
+        authorization: { kind: SOCKET_RPC_AUTHORIZATION_CONTEXT_KINDS.SESSION_WRITE, sessionId: 'session-a' },
+        payload: expect.objectContaining({ action: 'turn_sequence', sessionId: 'session-a', steps: expect.arrayContaining([
+            { backendTarget: gemini, modelId: 'chosen', instructions: 'Review' },
+        ]) }),
     }));
 });

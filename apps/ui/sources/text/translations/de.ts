@@ -6606,6 +6606,17 @@ export const de: TranslationStructure = {
     },
 
     agentInput: {
+        sequence: {
+            handOff: "Übergeben",
+            takeOverTask: "Übernimm die Aufgabe aus dem vorherigen Schritt.",
+            turn: ({ index }: { index: number }) => `Schritt ${index}`,
+            addTurn: "Schritt hinzufügen",
+            incomplete: "Wähle für jeden Schritt einen Agenten und gib Anweisungen ein.",
+            loading: "Agenten werden geladen…",
+            unknown: "Wähle für jeden Schritt einen Agenten.",
+            unavailable: "Diese Agenten stehen für eine Übergabe nicht zur Verfügung.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Agent wechseln.`,
+        },
         keepKeyboard: { label: "Tastatur nach dem Senden geöffnet lassen" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} von ${total}`,
         sendOptions: {
@@ -6623,8 +6634,8 @@ export const de: TranslationStructure = {
         agentReview: {
             cachedModels: "Gespeicherte Modellliste · Aktualisierung nicht verfügbar",
             catalogModels: "Anbieterkatalog · Live-Abfrage nicht verfügbar",
-            group: "Review-Agenten",
-            choose: "Einen Agenten um eine Prüfung bitten…",
+            group: "Agenten",
+            choose: "Agenten auswählen…",
             none: "Keine Treffer",
             unavailable: "Optionen konnten nicht vom Gerät geladen werden",
             review: "Prüfung",

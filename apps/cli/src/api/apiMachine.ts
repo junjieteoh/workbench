@@ -179,6 +179,8 @@ export class ApiMachineClient {
     private socket: Socket<ServerToDaemonEvents, DaemonToServerEvents> | null = null;
     private keepAliveInterval: NodeJS.Timeout | null = null;
     private rpcHandlerManager: RpcHandlerManager;
+    private hasSessionAgentSequence = false;
+    private hasSessionAgentTurnSequence = false;
     private hasConnectedOnce = false;
     private accountIdPromise: Promise<string> | null = null;
     private readonly connectedServicesProjectionRetry = createConnectedServicesProjectionRetryScheduler();
@@ -375,6 +377,8 @@ export class ApiMachineClient {
         this.rpcLifecycleRegistrations.push(registerSessionHandlers(this.rpcHandlerManager, machineRpcWorkingDirectory, {
             accessPolicy: filesystemAccessPolicy,
             hasSessionAgentTransition: () => this.rpcHandlerManager.hasHandler(RPC_METHODS.SESSION_AGENT_TRANSITION),
+            hasSessionAgentTurnSequence: () => this.hasSessionAgentTurnSequence && this.rpcHandlerManager.hasHandler(RPC_METHODS.SESSION_AGENT_TRANSITION),
+            hasSessionAgentSequence: () => this.hasSessionAgentSequence && this.rpcHandlerManager.hasHandler(RPC_METHODS.SESSION_AGENT_TRANSITION),
             setAdditionalAllowedReadDirs: (dirs) => {
                 additionalAllowedReadDirs = dirs;
             },
@@ -408,6 +412,8 @@ export class ApiMachineClient {
     }
 
     setRPCHandlers({
+        startAgentSequence,
+        startAgentTurnSequence,
         queuedAgentTransition,
         spawnSession,
         spawnSessionForHandoff,
@@ -423,10 +429,14 @@ export class ApiMachineClient {
         machineTransferChannel,
         directPeerTransfer,
     }: MachineRpcHandlers, deps?: MachineRpcHandlerDeps) {
+        this.hasSessionAgentTurnSequence = typeof startAgentTurnSequence === 'function';
+        this.hasSessionAgentSequence = typeof startAgentSequence === 'function';
         const machineRpcLifecycleRegistration = registerMachineRpcHandlers({
             rpcHandlerManager: this.rpcHandlerManager,
             machineId: this.machine.id,
             handlers: {
+                startAgentSequence,
+                startAgentTurnSequence,
                 queuedAgentTransition,
                 spawnSession,
                 ...(spawnSessionForHandoff ? { spawnSessionForHandoff } : {}),

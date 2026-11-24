@@ -6638,6 +6638,17 @@ export const en = {
     },
 
     agentInput: {
+        sequence: {
+            handOff: "Hand off",
+            takeOverTask: "Take over from the previous turn.",
+            turn: ({ index }: { index: number }) => `Turn ${index}`,
+            addTurn: "Add turn",
+            incomplete: "Choose an agent and add instructions for each turn.",
+            loading: "Loading agents…",
+            unknown: "Choose an agent for each step.",
+            unavailable: "These agents are unavailable for a handoff.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Change agent.`,
+        },
         keepKeyboard: { label: "Keep keyboard open after sending" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} of ${total}`,
         sendOptions: {
@@ -6655,8 +6666,8 @@ export const en = {
         agentReview: {
             cachedModels: "Saved model list · live refresh unavailable",
             catalogModels: "Provider catalog · live lookup unavailable",
-            group: "Review agents",
-            choose: "Ask an agent to review…",
+            group: "Agents",
+            choose: "Choose an agent…",
             none: "No matches",
             unavailable: "Couldn’t load choices from this machine",
             review: "Review",

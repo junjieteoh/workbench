@@ -627,6 +627,26 @@ describe('ApiSessionClient session.userMessage.send delivery', () => {
     expect((client as any).canonicalPendingDeliveryByLocalId.has('stale-connection')).toBe(true);
   });
 
+  it('withholds the sequence terminal until the same runner finishes its transcript writes', async () => {
+    const client = Object.create(ApiSessionClient.prototype) as any;
+    client.sessionId = 'sequence-session';
+    client.startedByDaemonProcess = true;
+    client.daemonTurnLifecycleNotifyTail = Promise.resolve();
+    let release!: () => void;
+    client.drainBestEffortSessionWrites = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const terminal = client.notifyDaemonConnectedServiceTurnLifecycle(
+      'assistant_message_end', 'completed', 'turn-of-this-input', undefined, ['happier-turn-step-one'],
+    );
+    await vi.waitFor(() => expect(client.drainBestEffortSessionWrites).toHaveBeenCalled());
+    expect(notifyDaemonConnectedServiceTurnLifecycleMock).not.toHaveBeenCalled();
+    release();
+    await terminal;
+    expect(notifyDaemonConnectedServiceTurnLifecycleMock).toHaveBeenCalledExactlyOnceWith({
+      sessionId: 'sequence-session', event: 'assistant_message_end', terminalStatus: 'completed',
+      turnId: 'turn-of-this-input', sequenceInput: { runnerPid: process.pid, localIds: ['happier-turn-step-one'] },
+    });
+  });
+
   it('serializes exact daemon turn lifecycle notifications in mutation order', async () => {
     // Boundary fixture: private transport sequencing is the observable contract under test.
     const client = Object.create(ApiSessionClient.prototype) as any;

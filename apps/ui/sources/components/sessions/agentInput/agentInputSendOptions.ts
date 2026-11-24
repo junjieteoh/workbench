@@ -1,9 +1,11 @@
+import type { ComposerAgentReviewSelection } from './agentReviewComposer';
 import type { MessageSendMode } from '@/sync/domains/session/control/submitMode';
 import type { NewSessionAfterSendMode } from '@/sync/domains/settings/registry/account/accountSessionCreationSettingDefinitions';
 import { t } from '@/text';
 
 export type AgentInputSendOptions = Readonly<{
-    agentReviewSelection?: import('./agentReviewComposer').ComposerAgentReviewSelection;
+    agentReviewSelection?: ComposerAgentReviewSelection;
+    agentSequence?: readonly ComposerAgentReviewSelection[];
     forceImmediate?: boolean;
     queueHandoffAfterTurnId?: string;
     sendNextQueued?: boolean;

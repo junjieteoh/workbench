@@ -6998,6 +6998,17 @@ export const pl: TranslationStructure = {
   },
 
   agentInput: {
+      sequence: {
+          handOff: "Przekaż",
+          takeOverTask: "Przejmij zadanie z poprzedniej tury.",
+          turn: ({ index }: { index: number }) => `Tura ${index}`,
+          addTurn: "Dodaj turę",
+          incomplete: "Wybierz agenta i dodaj instrukcje dla każdej tury.",
+          loading: "Ładowanie agentów…",
+          unknown: "Wybierz agenta dla każdego kroku.",
+          unavailable: "Ci agenci nie mogą przekazać sobie zadania.",
+          changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Zmień agenta.`,
+      },
       keepKeyboard: { label: "Nie zamykaj klawiatury po wysłaniu" },
       historyPosition: ({ index, total }: { index: number; total: number }) => `${index} z ${total}`,
       sendOptions: {
@@ -7013,8 +7024,8 @@ export const pl: TranslationStructure = {
     agentReview: {
         cachedModels: "Zapisana lista modeli · odświeżanie niedostępne",
         catalogModels: "Katalog dostawcy · wyszukiwanie na żywo niedostępne",
-        group: "Agenci recenzujący",
-        choose: "Poproś agenta o recenzję…",
+        group: "Agenci",
+        choose: "Wybierz agenta…",
         none: "Brak wyników",
         unavailable: "Nie udało się wczytać opcji z tego urządzenia",
         review: "Recenzja",

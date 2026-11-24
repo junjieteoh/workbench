@@ -576,6 +576,7 @@ export async function notifyDaemonConnectedServiceTurnLifecycle(
     sessionId: body.sessionId,
     event: body.event,
     ...(body.terminalStatus ? { terminalStatus: body.terminalStatus } : {}),
+    ...(body.sequenceInput ? { sequenceInput: body.sequenceInput } : {}),
     ...(body.turnId ? { turnId: body.turnId } : {}),
     ...(body.requestedAction ? { requestedAction: body.requestedAction } : {}),
     ...(body.activeTurnId !== undefined ? { activeTurnId: body.activeTurnId } : {}),

@@ -1,3 +1,4 @@
+import { isForegroundSequenceStepId } from '@/session/agentTransition/foregroundSequenceStepId';
 import type { ApiSessionClient, SessionProviderInputOutcomeObserver } from '@/api/session/sessionClient';
 import type { PermissionMode } from '@/api/types';
 import { parseSpecialCommand } from '@/cli/parsers/specialCommands';
@@ -584,6 +585,10 @@ export async function runPermissionModePromptLoop(opts: {
           : seedResolution.providerPrompt;
 
       const dispatchProviderPrompt = async () => {
+        const startingInputLocalIds = message.userMessageLocalIds;
+        if (startingInputLocalIds.some(isForegroundSequenceStepId)) {
+          await opts.session.sessionTurnLifecycle.beginTurn({ provider: opts.providerId, startingInputLocalIds });
+        }
         const modelState = readNewestSessionModelsMetadataStateV1(opts.session.getMetadataSnapshot());
         appliedModelIdForPrompt = (
           !opts.providerId

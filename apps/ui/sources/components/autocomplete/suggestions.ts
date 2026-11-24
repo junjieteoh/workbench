@@ -274,7 +274,7 @@ export async function getSuggestions(
     // intent (`@plugin:foo`). That is not the implicit suppression INV-2 forbids.
     const definitions = scope.kind
         ? triggerKinds.filter((definition) => definition.id === scope.kind)
-        : parsed.trigger === '@' && reviewEnabled && options?.agentReview?.matchesTargetPrefix(parsed.query)
+        : parsed.trigger === '@' && reviewEnabled && (!parsed.query || options?.agentReview?.matchesTargetPrefix(parsed.query))
             ? [...triggerKinds].sort((a, b) => Number(b.id === 'agentReview') - Number(a.id === 'agentReview'))
             : triggerKinds;
     if (definitions.length === 0) return [];

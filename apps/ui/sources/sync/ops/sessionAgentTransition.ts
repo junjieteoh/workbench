@@ -1,5 +1,9 @@
 import {
     SessionAgentTransitionRequestV1Schema,
+    SessionAgentSequenceRequestV1Schema, SessionAgentSequenceResultV1Schema,
+    type SessionAgentSequenceRequestV1, type SessionAgentSequenceResultV1,
+    SessionAgentTurnSequenceRequestV1Schema, SessionAgentTurnSequenceResultV1Schema,
+    type SessionAgentTurnSequenceRequestV1, type SessionAgentTurnSequenceResultV1,
     SessionAgentTransitionQueueRequestV1Schema,
     SessionAgentTransitionQueueResultV1Schema,
     type SessionAgentTransitionQueueRequestV1,
@@ -49,7 +53,7 @@ export type RunSessionAgentTransitionInput = Readonly<{
 
 function callSessionAgentTransition(
     input: Pick<RunSessionAgentTransitionInput, 'machineId' | 'serverId'>,
-    payload: SessionAgentTransitionRequestV1 | SessionAgentTransitionQueueRequestV1,
+    payload: SessionAgentTransitionRequestV1 | SessionAgentTransitionQueueRequestV1 | SessionAgentSequenceRequestV1 | SessionAgentTurnSequenceRequestV1,
 ): Promise<unknown> {
     return machineRpcWithServerScope({
         machineId: input.machineId,
@@ -103,4 +107,24 @@ export async function runSessionAgentTransitionOnMachine(
     // switched the Session. Claiming a no-effect rejection here would hand the
     // reader Keep editing in front of a Session that already moved.
     return parsed.success ? parsed.data : effects.outcomeUnknown();
+}
+
+export async function sessionAgentSequenceOnMachine(
+    machineId: string, request: SessionAgentSequenceRequestV1, opts?: Readonly<{ serverId?: string | null }>,
+): Promise<SessionAgentSequenceResultV1> {
+    const payload = SessionAgentSequenceRequestV1Schema.parse(request);
+    const raw = await callSessionAgentTransition({ machineId, serverId: opts?.serverId ?? null }, payload);
+    return SessionAgentSequenceResultV1Schema.parse(raw);
+}
+
+export async function sessionAgentTurnSequenceOnMachine(
+    input: Pick<RunSessionAgentTransitionInput, 'machineId' | 'serverId'> & { request: SessionAgentTurnSequenceRequestV1 },
+): Promise<SessionAgentTurnSequenceResultV1> {
+    const payload = SessionAgentTurnSequenceRequestV1Schema.parse(input.request);
+    try {
+        return SessionAgentTurnSequenceResultV1Schema.parse(await callSessionAgentTransition(input, payload));
+    } catch (error) {
+        if (readRpcErrorCode(error) === RPC_ERROR_CODES.METHOD_NOT_AVAILABLE) return { status: 'rejected', reason: 'unsupported' };
+        throw error;
+    }
 }

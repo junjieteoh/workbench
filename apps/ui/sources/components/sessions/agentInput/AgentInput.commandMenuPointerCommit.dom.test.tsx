@@ -206,7 +206,7 @@ type MountedComposer = Readonly<{
 }>;
 
 /** Mounts the session composer wired exactly as `SessionView` wires it. */
-async function renderSessionComposer(review?: Pick<ReviewBinding, 'matchesTargetPrefix' | 'resolveModels' | 'resolveTargets'>, onSend: (options?: SubmitOptions) => void = () => {}): Promise<MountedComposer> {
+async function renderSessionComposer(review?: Omit<ReviewBinding, 'selection' | 'onSelectionChange'>, onSend: (options?: SubmitOptions) => void = () => {}, agentSequence?: React.ComponentProps<typeof AgentInput>['agentSequence']): Promise<MountedComposer> {
     function Host() {
         const [value, setValue] = React.useState('');
         const [selection, onSelectionChange] = React.useState<ReviewSelection | null>(null);
@@ -228,6 +228,7 @@ async function renderSessionComposer(review?: Pick<ReviewBinding, 'matchesTarget
                 placeholder="Message"
                 onSend={onSend}
                 agentReview={agentReview}
+                agentSequence={agentSequence}
                 autocompleteKinds={SESSION_COMPOSER_SUGGESTION_KINDS}
                 autocompleteSuggestions={handler}
                 sessionId={SESSION_ID}
@@ -303,6 +304,149 @@ async function pressRow(composer: MountedComposer, optionId: string): Promise<Pr
 }
 
 describe('AgentInput — a pointer press on a suggestion rewrites the composer', () => {
+    it('previews a typed planner and successor before Enter dispatches both assignments', async () => {
+        const claude = { agentId: 'claude', label: 'Claude', backendTarget: { kind: 'builtInAgent', agentId: 'claude' } } as const;
+        const gemini = { agentId: 'gemini', label: 'Gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' } } as const;
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: () => false,
+            resolveTargets: async () => [claude, gemini],
+            resolveModels: async target => target.agentId === 'claude' ? [{ id: 'opus-test', label: 'Opus' }] : [],
+        }, onSend, { currentTargetKey: 'agent:claude', successorTargets: [claude, gemini] });
+        const text = '@opus plan first then @gemini take over';
+        await typeIntoComposer(composer, text);
+        await vi.waitFor(() => expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Opus'));
+        expect(onSend).not.toHaveBeenCalled();
+        await act(async () => { composer.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+        expect(onSend).toHaveBeenCalledTimes(1);
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            inputTextOverride: text,
+            agentSequence: [{ target: claude, modelId: 'opus-test', modelLabel: 'Opus' }, expect.objectContaining({ target: gemini, modelId: null })],
+        }));
+    });
+
+    it('opens the agent menu from a cold bare @ while workspace suggestions are already available', async () => {
+        const gemini = { agentId: 'gemini', label: 'Gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' } } as const;
+        let finish!: (targets: typeof gemini[]) => void;
+        const pending = new Promise<typeof gemini[]>(resolve => { finish = resolve; });
+        const resolveTargets = vi.fn(() => pending);
+        searchFilesMock.mockResolvedValue([file('README.md')]);
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: () => false, peekTargets: () => null, resolveTargets, resolveModels: async () => [],
+        });
+        await typeIntoComposer(composer, '@');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:open')).not.toBeNull());
+        expect(findMenuRow('file-README.md')).not.toBeNull();
+        await pressRow(composer, 'agentReview:open');
+        expect(composer.text()).toBe('@agent:');
+        await act(async () => { finish([gemini]); });
+        await vi.waitFor(() => expect(findMenuRow('agentReview:gemini')).not.toBeNull());
+    });
+
+    it('lists agents at a bare @ and retains the picked model when adding a successor', async () => {
+        const claude = { agentId: 'claude', label: 'Claude', backendTarget: { kind: 'builtInAgent', agentId: 'claude' } } as const;
+        const gemini = { agentId: 'gemini', label: 'Gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' } } as const;
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: () => false,
+            resolveTargets: async () => [claude, gemini],
+            resolveModels: async target => target.agentId === 'claude' ? [{ id: 'model-a', label: 'Picked model' }] : [],
+        }, onSend, { currentTargetKey: 'agent:claude', successorTargets: [claude, gemini] });
+        await typeIntoComposer(composer, '@');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:claude')).not.toBeNull());
+        await pressRow(composer, 'agentReview:claude');
+        await vi.waitFor(() => expect(findMenuRow('agentReview:claude/model-a')).not.toBeNull());
+        await pressRow(composer, 'agentReview:claude/model-a');
+        expect(composer.text()).toBe('@Claude ');
+        await typeIntoComposer(composer, composer.text() + 'plan first then @gemini take over');
+        await vi.waitFor(() => expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Picked model'));
+        expect(onSend).not.toHaveBeenCalled();
+        await act(async () => { composer.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            agentSequence: [expect.objectContaining({ target: claude, modelId: 'model-a' }), expect.objectContaining({ target: gemini })],
+        }));
+    });
+
+    it('changes agents and instructions including a return turn and submits the exact preview', async () => {
+        const target = (id: 'claude' | 'codex' | 'gemini') => ({
+            agentId: id, label: id, backendTarget: { kind: 'builtInAgent' as const, agentId: id },
+        });
+        const actors = [target('claude'), target('gemini'), target('codex')];
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: () => false, resolveTargets: async () => actors,
+            resolveModels: async actor => actor.agentId === 'claude' ? [{ id: 'opus', label: 'Opus' }] : [],
+        }, onSend, { currentTargetKey: 'agent:claude', successorTargets: actors });
+        const click = async (id: string) => {
+            const element = await vi.waitFor(() => {
+                const found = document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+                expect(found).not.toBeNull();
+                return found!;
+            });
+            await act(async () => { element.click(); });
+        };
+        await typeIntoComposer(composer, '@opus plan first then @gemini take over, then back to @claude to revise');
+        await click('composer-sequence-agent-0');
+        await click('composer-sequence-option-@codex');
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @gemini take over, then back to @claude to revise'));
+        await click('composer-sequence-agent-1');
+        await click('composer-sequence-option-@claude/opus');
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @claude/opus take over, then back to @claude to revise'));
+        const third = document.querySelector<HTMLTextAreaElement>('[data-testid="composer-sequence-task-2"]')!;
+        expect(third.value).toBe('revise');
+        await typeIntoComposer({ text: () => third.value, textarea: third }, 'polish the summary');
+        await vi.waitFor(() => expect(composer.text()).toContain('@claude to polish the summary'));
+        await click('composer-sequence-add');
+        await vi.waitFor(() => expect(composer.text()).toMatch(/, then @$/));
+        await click('session-composer-send');
+        expect(onSend).not.toHaveBeenCalled();
+        await click('composer-sequence-order-3');
+        await click('composer-sequence-remove');
+        await click('composer-sequence-order-2');
+        await click('composer-sequence-up');
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first, then @claude polish the summary, then @claude/opus take over'));
+        expect(onSend).not.toHaveBeenCalled();
+        await click('session-composer-send');
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            inputTextOverride: composer.text(), agentSequence: [expect.objectContaining({ target: actors[2] }), expect.objectContaining({ target: actors[0], modelId: null }), expect.objectContaining({ target: actors[0], modelId: 'opus' })],
+        }));
+    });
+
+    it.each([
+        ['cursor', 'codex'],
+        ['gemini', 'claude'],
+    ] as const)('stages %s → %s from the agent menu and sends only after preview', async (firstId, nextId) => {
+        const source = { agentId: firstId, label: firstId, backendTarget: { kind: 'builtInAgent', agentId: firstId } } as const;
+        const target = { agentId: nextId, label: nextId, backendTarget: { kind: 'builtInAgent', agentId: nextId } } as const;
+        const onSend = vi.fn();
+        const onStage = vi.fn();
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: query => nextId.startsWith(query),
+            resolveTargets: async () => [],
+            resolveModels: async () => [{ id: 'selected-model', label: 'Chosen model' }],
+            reviewEnabled: false,
+            handoff: {
+                first: { target: source, modelId: 'selected-model', modelLabel: 'Chosen model' },
+                targets: [source, target],
+                onStage,
+            },
+        }, onSend, { currentTargetKey: 'agent:' + firstId, successorTargets: [source, target] });
+        await typeIntoComposer(composer, 'Write a short math question and hand over to @' + nextId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + nextId)).not.toBeNull());
+        await pressRow(composer, 'agentReview:' + nextId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + nextId + '/handoff')).not.toBeNull());
+        expect(findMenuRow('agentReview:' + nextId + '/selected-model')).toBeNull();
+        await pressRow(composer, 'agentReview:' + nextId + '/handoff');
+        await vi.waitFor(() => expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Chosen model'));
+        expect(document.querySelector<HTMLTextAreaElement>('[data-testid="composer-sequence-task-0"]')?.value).toBe('Write a short math question');
+        expect(onStage).toHaveBeenCalledTimes(1);
+        expect(onSend).not.toHaveBeenCalled();
+        await act(async () => { document.querySelector<HTMLElement>('[data-testid="session-composer-send"]')?.click(); });
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            agentSequence: [expect.objectContaining({ target: source, modelId: 'selected-model' }), expect.objectContaining({ target, modelId: null })],
+        }));
+    });
+
     it('chooses an agent and model by keyboard, preserves instructions and submits the explicit reviewer', async () => {
         const codex = { agentId: 'codex', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, label: 'Codex' } as const;
         const gemini = { agentId: 'gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' }, label: 'Gemini' } as const;

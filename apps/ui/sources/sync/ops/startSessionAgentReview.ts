@@ -10,7 +10,7 @@ import { resolveActionExecutionFailureMessage } from '@/sync/ops/actions/resolve
 import { t } from '@/text';
 
 /** Snapshot the visible conversation once so a retry of the same start has identical input. */
-export function captureSessionAgentReviewContext(sessionId: string): string {
+export function captureSessionAgentReviewContext(sessionId: string, options?: { includeUserOnly?: boolean }): string {
     const state = storage.getState();
     const { recentMessagesCount, maxSeedChars } = resolveHappierReplayConfig(state.settings);
     const newestFirst = readStoredSessionMessages(state, sessionId)
@@ -27,7 +27,7 @@ export function captureSessionAgentReviewContext(sessionId: string): string {
             const text = message.displayText ?? message.text;
             return text.trim() ? [{ index, lead: false, text }] : [];
         }).reverse();
-    const draft = newestFirst.find((row) => row.lead);
+    const draft = newestFirst.find((row) => row.lead) ?? (options?.includeUserOnly ? newestFirst[0] : undefined);
     if (!draft) return '';
 
     // Budget the draft first so follow-up user messages cannot silently displace the work under review.

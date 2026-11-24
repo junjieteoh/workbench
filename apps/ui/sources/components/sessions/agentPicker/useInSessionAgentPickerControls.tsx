@@ -273,6 +273,7 @@ function buildArmedContinuation(
  * by the width of a rail 40ms after the reader is already looking at it.
  */
 export type InSessionAgentPickerControls = Readonly<{
+    eligibleSequenceSuccessors: readonly ResolvedBackendCatalogEntry[];
     /**
      * Extends the composer's own current-Agent rows with the rest of the catalog.
      * Returns the input unchanged when this Session has no other Agent to offer.
@@ -494,6 +495,10 @@ export function useInSessionAgentPickerControls(
     // counting an unanswered one is what let the rail appear on the strength of
     // questions the machine then refused, and take itself away half a second
     // later with the reader already looking at it.
+    const eligibleSequenceSuccessors = React.useMemo(() => entries.filter(entry => (
+        entry.targetKey === source.currentBackendTargetKey
+        || (featureEnabled && targetRows.some(row => row.entry === entry && row.eligibility.status === 'eligible'))
+    )), [entries, featureEnabled, source.currentBackendTargetKey, targetRows]);
     const hasSwitchableTarget = targetRows.some((row) => row.eligibility.status === 'eligible');
     // Every target has been decided — answered by the machine, or refused by the
     // local rules before the machine was ever asked.
@@ -1001,6 +1006,7 @@ export function useInSessionAgentPickerControls(
     }, [armedTargetKey, clearArmedContinuation, currentAgentAppliedStatus, currentAgentLabel, targetOptions]);
 
     return {
+        eligibleSequenceSuccessors,
         composeAgentPickerOptions,
         agentPickerSelectedOptionId,
         armedContinuation: featureEnabled ? armed?.intent ?? null : null,

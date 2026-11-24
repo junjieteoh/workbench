@@ -6593,6 +6593,17 @@ export const fr: TranslationStructure = {
     },
 
     agentInput: {
+        sequence: {
+            handOff: "Passer le relais",
+            takeOverTask: "Reprends le travail du tour précédent.",
+            turn: ({ index }: { index: number }) => `Étape ${index}`,
+            addTurn: "Ajouter une étape",
+            incomplete: "Choisissez un agent et ajoutez des instructions pour chaque étape.",
+            loading: "Chargement des agents…",
+            unknown: "Choisissez un agent pour chaque étape.",
+            unavailable: "Ces agents ne peuvent pas se passer le relais.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Changer d’agent.`,
+        },
         keepKeyboard: { label: "Garder le clavier ouvert après l’envoi" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} sur ${total}`,
         sendOptions: {
@@ -6610,8 +6621,8 @@ export const fr: TranslationStructure = {
         agentReview: {
             cachedModels: "Liste enregistrée · actualisation indisponible",
             catalogModels: "Catalogue du fournisseur · recherche en direct indisponible",
-            group: "Agents de relecture",
-            choose: "Demander une relecture à un agent…",
+            group: "Agents",
+            choose: "Choisir un agent…",
             none: "Aucun résultat",
             unavailable: "Impossible de charger les options de cette machine",
             review: "Relecture",

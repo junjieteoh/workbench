@@ -5924,6 +5924,17 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
     },
 
     agentInput: {
+        sequence: {
+            handOff: "交接",
+            takeOverTask: "接手上一輪的工作。",
+            turn: ({ index }: { index: number }) => `回合 ${index}`,
+            addTurn: "新增回合",
+            incomplete: "請為每個回合選擇代理並新增指示。",
+            loading: "正在載入代理程式…",
+            unknown: "請為每個步驟選擇一個代理程式。",
+            unavailable: "這些代理程式目前無法交接任務。",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}，${agent}。變更代理程式。`,
+        },
         keepKeyboard: { label: "傳送後保持鍵盤開啟" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} / ${total}`,
         sendOptions: {
@@ -5939,8 +5950,8 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         agentReview: {
             cachedModels: "已儲存的模型清單 · 無法即時重新整理",
             catalogModels: "供應商目錄 · 無法即時查詢",
-            group: "審閱代理",
-            choose: "請代理審閱…",
+            group: "代理",
+            choose: "選擇代理…",
             none: "無相符項目",
             unavailable: "無法從這台機器載入選項",
             review: "審閱",

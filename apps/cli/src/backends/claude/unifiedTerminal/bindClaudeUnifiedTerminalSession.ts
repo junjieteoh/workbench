@@ -165,7 +165,7 @@ export function bindClaudeUnifiedTerminalSession<Mode extends EnhancedMode = Enh
     readyTurnContext = { turnToken, startSeqExclusive };
   }
 
-  async function recordCanonicalTurnStarted(confirmProviderResume: boolean): Promise<void> {
+  async function recordCanonicalTurnStarted(confirmProviderResume: boolean, startingInputLocalIds?: readonly string[]): Promise<void> {
     // The idle-resume release terminalizes the provisional canonical turn asynchronously. A
     // delayed exact resume prompt can arrive while that mutation is in flight; wait for the old
     // turn to close before opening its successor, otherwise the start deduplicates against the old
@@ -179,12 +179,13 @@ export function bindClaudeUnifiedTerminalSession<Mode extends EnhancedMode = Enh
     }
     if (canonicalTurnOpen) {
       await canonicalTurnStartPromise;
+      if (startingInputLocalIds?.length) await opts.session.sessionTurnLifecycle?.beginTurn({ provider: 'claude', startingInputLocalIds });
       return;
     }
     canonicalTurnOpen = true;
     const lifecycle = opts.session.sessionTurnLifecycle;
     if (!lifecycle?.beginTurn) return;
-    const startPromise = Promise.resolve(lifecycle.beginTurn({ provider: 'claude' }))
+    const startPromise = Promise.resolve(lifecycle.beginTurn({ provider: 'claude', ...(startingInputLocalIds?.length ? { startingInputLocalIds } : {}) }))
       .then(() => undefined)
       .catch((error) => {
         canonicalTurnOpen = false;
@@ -401,7 +402,7 @@ export function bindClaudeUnifiedTerminalSession<Mode extends EnhancedMode = Enh
           });
         }
         beginReadyNotificationTurn();
-        await recordPromptTurnStarted();
+        await recordCanonicalTurnStarted(true, acceptedPrompt.userMessageLocalIds ?? undefined);
         await recordPromptTurnProgress();
         await opts.onPromptTurnStarted?.();
       },

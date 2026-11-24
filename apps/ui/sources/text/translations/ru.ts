@@ -6981,6 +6981,17 @@ export const ru: TranslationStructure = {
       },
 
     agentInput: {
+        sequence: {
+            handOff: "Передать",
+            takeOverTask: "Продолжи работу с предыдущего хода.",
+            turn: ({ index }: { index: number }) => `Ход ${index}`,
+            addTurn: "Добавить ход",
+            incomplete: "Выберите агента и укажите инструкции для каждого хода.",
+            loading: "Загрузка агентов…",
+            unknown: "Выберите агента для каждого шага.",
+            unavailable: "Эти агенты не могут передать задачу друг другу.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Сменить агента.`,
+        },
         keepKeyboard: { label: "Не закрывать клавиатуру после отправки" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} из ${total}`,
         sendOptions: {
@@ -6996,8 +7007,8 @@ export const ru: TranslationStructure = {
         agentReview: {
             cachedModels: "Сохранённый список моделей · обновление недоступно",
             catalogModels: "Каталог провайдера · поиск в реальном времени недоступен",
-            group: "Агенты для проверки",
-            choose: "Попросить агента проверить…",
+            group: "Агенты",
+            choose: "Выбрать агента…",
             none: "Нет совпадений",
             unavailable: "Не удалось загрузить варианты с этого устройства",
             review: "Проверка",

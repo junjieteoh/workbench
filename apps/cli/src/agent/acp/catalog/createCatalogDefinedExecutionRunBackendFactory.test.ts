@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentBackend } from '@/agent/core';
+import type { SessionConfigOption } from '@/agent/acp/AcpBackend';
+import { getExecutionRunBackendFactory } from '@/agent/executionRuns/registry/executionRunBackendRegistry';
 
 const createCatalogAcpBackend = vi.fn();
 vi.mock('@/agent/acp/createCatalogAcpBackend', () => ({
@@ -62,5 +64,41 @@ describe('createCatalogDefinedExecutionRunBackendFactory', () => {
 
     await Promise.all([backend.startSession(), backend.loadSession?.('agy-session-existing')]);
     expect(createCatalogAcpBackend).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a Cursor CLI variant using the learned ACP model and effort options', async () => {
+    const setSessionConfigOption = vi.fn(async () => {});
+    const configOptions = [
+      {
+        id: 'model', name: 'Model', type: 'select', currentValue: 'auto',
+        options: [{ value: 'auto', name: 'Auto' }, { value: 'grok-4.7', name: 'Grok 4.7' }],
+      },
+      {
+        id: 'reasoning_effort', name: 'Reasoning effort', type: 'select', currentValue: 'high',
+        options: [{ value: 'high', name: 'High' }, { value: 'medium', name: 'Medium' }],
+      },
+    ] satisfies readonly SessionConfigOption[];
+    const resolved = {
+      ...fakeBackend(),
+      getSessionConfigOptionsState: () => configOptions,
+      setSessionConfigOption,
+    };
+    createCatalogAcpBackend.mockResolvedValue({ backend: resolved });
+    const factory = getExecutionRunBackendFactory('cursor');
+    if (!factory) throw new Error('Cursor must support execution runs');
+    const backend = factory({
+      cwd: '/workspace',
+      backendId: 'cursor',
+      modelId: 'grok-4.7-medium',
+      permissionMode: 'read_only',
+      permissionHandler: { handleToolCall: vi.fn() },
+    });
+
+    const { sessionId } = await backend.startSession();
+
+    expect(setSessionConfigOption.mock.calls).toEqual([
+      [sessionId, 'model', 'grok-4.7'],
+      [sessionId, 'reasoning_effort', 'medium'],
+    ]);
   });
 });

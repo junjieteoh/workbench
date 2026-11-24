@@ -10,15 +10,23 @@ export type ComposerAgentReviewTarget = ComposerAgentReviewSelection['target'];
 export type ComposerAgentReviewModel = Readonly<{ id: string | null; label: string; source?: 'cached' | 'catalog' }>;
 export type AgentReviewComposerBinding = Readonly<{
     selection: ComposerAgentReviewSelection | null;
+    reviewEnabled?: boolean;
+    handoff?: Readonly<{
+        first: ComposerAgentReviewSelection;
+        targets: readonly ComposerAgentReviewTarget[];
+        onStage(): void;
+    }>;
     onSelectionChange(value: ComposerAgentReviewSelection | null): void;
     matchesTargetPrefix(query: string): boolean;
-    resolveTargets(signal?: AbortSignal): Promise<readonly ComposerAgentReviewTarget[]>;
+    peekTargets?(): readonly ComposerAgentReviewTarget[] | null;
+    resolveTargets(signal?: AbortSignal, intent?: 'delegate' | 'plan'): Promise<readonly ComposerAgentReviewTarget[]>;
     resolveModels(target: ComposerAgentReviewTarget, signal?: AbortSignal): Promise<readonly ComposerAgentReviewModel[]>;
 }>;
 export type AgentReviewSuggestionAction =
     | { kind: 'open' | 'status' }
     | { kind: 'target'; target: ComposerAgentReviewTarget }
-    | { kind: 'model'; selection: ComposerAgentReviewSelection };
+    | { kind: 'model'; selection: ComposerAgentReviewSelection }
+    | { kind: 'handoff'; target: ComposerAgentReviewTarget };
 
 export function formatAgentReviewMentionToken(target: ComposerAgentReviewTarget): string {
     return formatComposerSuggestionToken('@', target.label);
@@ -80,33 +88,57 @@ export async function resolveAgentReviewSuggestions(params: {
     const row = (key: string, text: string, label: string, agentReview: AgentReviewSuggestionAction): AutocompleteSuggestion => ({
         kind: 'agentReview', key: 'agentReview:' + key, text, label, agentReview, agentReviewQuery: query,
     });
-    const bareTarget = scope === null && !!query && binding.matchesTargetPrefix(query);
+    const bareTarget = scope === null && (!query || binding.matchesTargetPrefix(query));
     if (scope !== 'agent' && !bareTarget) {
         return scope === null && !!query && 'agent'.startsWith(query.toLowerCase())
             ? [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })] : [];
     }
     const separator = scopedQuery.indexOf('/');
     try {
-        const targets = await binding.resolveTargets(signal);
+        // The unscoped picker also shows files and sessions. Its discovery deadline
+        // can omit a slow agent section for the lifetime of this query. Offer the
+        // scoped picker immediately on a cold machine; it can await the live catalog.
+        const handoffTargets = binding.handoff?.targets ?? [];
+        const peek = !query && scope === null ? binding.peekTargets : undefined;
+        const reviewTargets = binding.reviewEnabled === false ? []
+            : peek ? peek() : await binding.resolveTargets(signal).catch(error => {
+                if (!handoffTargets.length) throw error;
+                return [];
+            });
+        if (peek && !reviewTargets?.length && !handoffTargets.length) {
+            return [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })];
+        }
         if (signal?.aborted) return [];
+        const targets = new Map([...handoffTargets, ...(reviewTargets ?? [])].map(target => [targetQueryId(target), target]));
         if (separator === -1) {
             const search = scopedQuery.toLowerCase();
-            const matches = targets.filter(target => [target.label, targetQueryId(target)].some(value => {
+            const matches = [...targets].filter(([id, target]) => [target.label, id].some(value => {
                 const name = value.toLowerCase();
                 return bareTarget ? name.startsWith(search) : name.includes(search);
             }));
-            if (matches.length) return matches.map(target => row(targetQueryId(target), '@agent:' + targetQueryId(target) + '/', target.label, { kind: 'target', target }));
+            if (matches.length) return matches.map(([id, target]) => row(id, '@agent:' + id + '/', target.label, { kind: 'target', target }));
         } else {
-            const target = targets.find(item => targetQueryId(item) === scopedQuery.slice(0, separator));
+            const id = scopedQuery.slice(0, separator);
+            const target = targets.get(id);
             if (target) {
-                const models = await binding.resolveModels(target, signal);
                 const search = scopedQuery.slice(separator + 1).toLowerCase();
+                const handoffLabel = t('agentInput.sequence.handOff');
+                const handoff = handoffTargets.some(candidate => targetQueryId(candidate) === id)
+                    && (!search || handoffLabel.toLowerCase().includes(search))
+                    ? [row(id + '/handoff', '@' + query, handoffLabel, { kind: 'handoff', target })] : [];
+                if (!reviewTargets?.some(candidate => targetQueryId(candidate) === id)) return handoff;
+                const models = await binding.resolveModels(target, signal).catch(error => {
+                    if (!handoff.length) throw error;
+                    return [];
+                });
                 const matches = models.filter(model => [model.label, model.id].some(value => value?.toLowerCase().includes(search)));
-                if (matches.length) return matches.map(model => ({
-                    ...row(targetQueryId(target) + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
+                if (handoff.length || matches.length) return [...handoff, ...matches.map(model => ({
+                    ...row(id + '/' + (model.id ?? ''), formatAgentReviewMentionToken(target), model.label,
                         { kind: 'model', selection: { target, modelId: model.id, modelLabel: model.label } }),
-                    ...(model.source ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') } : {}),
-                }));
+                    ...(model.source
+                        ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') }
+                        : handoff.length ? { description: t('agentInput.agentReview.review') } : {}),
+                }))];
             }
         }
         if (bareTarget) return [];

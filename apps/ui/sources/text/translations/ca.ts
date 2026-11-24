@@ -6607,6 +6607,17 @@ deps: {
     },
 
     agentInput: {
+        sequence: {
+            handOff: "Traspassa",
+            takeOverTask: "Pren el relleu del torn anterior.",
+            turn: ({ index }: { index: number }) => `Torn ${index}`,
+            addTurn: "Afegeix un torn",
+            incomplete: "Tria un agent i afegeix instruccions per a cada torn.",
+            loading: "S’estan carregant els agents…",
+            unknown: "Tria un agent per a cada pas.",
+            unavailable: "Aquests agents no estan disponibles per al traspàs.",
+            changeAgent: ({ step, agent }: { step: string; agent: string }) => `${step}, ${agent}. Canvia d’agent.`,
+        },
         keepKeyboard: { label: "Mantén el teclat obert després d’enviar" },
         historyPosition: ({ index, total }: { index: number; total: number }) => `${index} de ${total}`,
         sendOptions: {
@@ -6622,8 +6633,8 @@ deps: {
         agentReview: {
             cachedModels: "Llista desada · actualització no disponible",
             catalogModels: "Catàleg del proveïdor · consulta en directe no disponible",
-            group: "Agents de revisió",
-            choose: "Demana una revisió a un agent…",
+            group: "Agents",
+            choose: "Tria un agent…",
             none: "Cap coincidència",
             unavailable: "No s’han pogut carregar les opcions d’aquest equip",
             review: "Revisió",

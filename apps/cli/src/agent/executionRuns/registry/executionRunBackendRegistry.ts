@@ -6,6 +6,7 @@ import { executionRunBackendFactory as auggie } from '@/backends/auggie/executio
 import { executionRunBackendFactory as qwen } from '@/backends/qwen/executionRuns/executionRunBackendFactory';
 import { executionRunBackendFactory as kilo } from '@/backends/kilo/executionRuns/executionRunBackendFactory';
 import { executionRunBackendFactory as copilot } from '@/backends/copilot/executionRuns/executionRunBackendFactory';
+import { executionRunBackendFactory as cursor } from '@/backends/cursor/executionRuns/executionRunBackendFactory';
 import { executionRunBackendFactory as pi } from '@/backends/pi/executionRuns/executionRunBackendFactory';
 import { executionRunBackendFactory as devin } from '@/backends/devin/executionRuns/executionRunBackendFactory';
 import { createCatalogDefinedExecutionRunBackendFactory } from '@/agent/acp/catalog/createCatalogDefinedExecutionRunBackendFactory';
@@ -29,6 +30,7 @@ const REGISTRY: Record<string, ExecutionRunBackendDescriptor> = {
   kimi: { factory: createCatalogDefinedExecutionRunBackendFactory('kimi') },
   kilo: { factory: kilo },
   copilot: { factory: copilot },
+  cursor: { factory: cursor },
   pi: { factory: pi },
   devin: { factory: devin },
   agy: { factory: createCatalogDefinedExecutionRunBackendFactory('agy') },

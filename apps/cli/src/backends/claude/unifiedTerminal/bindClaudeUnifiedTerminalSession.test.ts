@@ -217,6 +217,7 @@ describe('bindClaudeUnifiedTerminalSession', () => {
     binding.noteNextInjectedPromptShouldSuppressEcho();
     await binding.sessionOptions.onTerminalPromptInjected?.({
       message: 'hello',
+      userMessageLocalIds: ['happier-turn-step-claude'],
       mode: { permissionMode: 'default', claudeUnifiedTerminalEnabled: true },
       acceptedAs: 'new_turn',
       turnStateAtInjection: 'idle',
@@ -225,7 +226,9 @@ describe('bindClaudeUnifiedTerminalSession', () => {
     await binding.sessionOptions.onReady?.();
 
     expect(session.beginTurnAssistantTextSnapshot).toHaveBeenCalledWith({ startSeqExclusive: 41 });
-    expect(sessionTurnLifecycle.beginTurn).toHaveBeenCalledTimes(1);
+    expect(sessionTurnLifecycle.beginTurn).toHaveBeenCalledExactlyOnceWith({
+      provider: 'claude', startingInputLocalIds: ['happier-turn-step-claude'],
+    });
     expect(sessionTurnLifecycle.completeTurn).toHaveBeenCalledWith({ provider: 'claude' });
     expect(readyContexts).toEqual([{ turnToken: 'ready-turn-1', startSeqExclusive: 41 }]);
   });

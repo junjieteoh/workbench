@@ -32,16 +32,22 @@ export function useSessionAgentReviewComposer(params: Readonly<{
     const matchesTargetPrefix = React.useCallback((query: string) => !!query && entries.some(entry =>
         [entry.title, entry.builtInAgentId ?? entry.targetKey].some(value => value.toLowerCase().startsWith(query.toLowerCase()))
     ), [entries]);
-    const resolveTargets = React.useCallback(async (signal?: AbortSignal) => {
-        if (!machineId || signal?.aborted) return [];
-        await prefetchMachineCapabilitiesIfStale({ machineId, serverId, staleMs: 60_000, request: { requests: [{ id: 'tool.executionRuns' }] } });
+    const peekTargets = React.useCallback((intent: 'delegate' | 'plan' = 'delegate') => {
+        if (!machineId) return null;
         const backends = extractExecutionRunsBackendsFromMachineCapabilitiesState(getMachineCapabilitiesCacheState(machineId, serverId));
-        if (!backends) throw new Error('Review capabilities unavailable');
+        if (!backends) return null;
         // A conversational review uses a bounded, read-only delegate. The review intent is for diffs.
-        const available = new Set(resolveExecutionRunAvailableBackends(backends, 'delegate'));
+        const available = new Set(resolveExecutionRunAvailableBackends(backends, intent));
         return entries.filter(entry => available.has(entry.targetKey) || available.has(entry.providerAgentId))
             .map(entry => ({ agentId: entry.providerAgentId, backendTarget: entry.target, label: entry.title }));
     }, [machineId, serverId, entries]);
+    const resolveTargets = React.useCallback(async (signal?: AbortSignal, intent: 'delegate' | 'plan' = 'delegate') => {
+        if (!machineId || signal?.aborted) return [];
+        await prefetchMachineCapabilitiesIfStale({ machineId, serverId, staleMs: 60_000, request: { requests: [{ id: 'tool.executionRuns' }] } });
+        const targets = peekTargets(intent);
+        if (!targets) throw new Error('Review capabilities unavailable');
+        return targets;
+    }, [machineId, serverId, peekTargets]);
     const resolveModels = React.useCallback(async (target: ComposerAgentReviewTarget, signal?: AbortSignal) => {
         if (!machineId || signal?.aborted) return [];
         const core = getAgentCore(target.agentId);
@@ -71,6 +77,6 @@ export function useSessionAgentReviewComposer(params: Readonly<{
         }
         return options.filter(option => option.value !== 'custom').map(option => ({ id: option.value === 'default' ? null : option.value, label: option.label, ...(source ? { source } : {}) }));
     }, [machineId, serverId, cwd, profileId, metadata, settings]);
-    return React.useMemo(() => params.enabled && machineId ? { matchesTargetPrefix, resolveTargets, resolveModels, selection, onSelectionChange } : undefined,
-        [params.enabled, machineId, matchesTargetPrefix, resolveTargets, resolveModels, selection, onSelectionChange]);
+    return React.useMemo(() => params.enabled && machineId ? { matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, selection, onSelectionChange } : undefined,
+        [params.enabled, machineId, matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, selection, onSelectionChange]);
 }

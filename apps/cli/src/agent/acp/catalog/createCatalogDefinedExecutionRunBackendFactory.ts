@@ -6,6 +6,7 @@ import { withExecutionRunBackendModelOptions } from '@/agent/executionRuns/runti
 import type { AgentBackend, AgentMessageHandler, AgentPromptPayload, SessionId } from '@/agent/core';
 import { sendAgentPromptPayload, sendAgentSteerPromptPayload } from '@/agent/core/AgentPromptPayload';
 import { createCatalogAcpBackend } from '@/agent/acp/createCatalogAcpBackend';
+import type { SessionConfigOption } from '@/agent/acp/AcpBackend';
 
 type ConfigurableCatalogBackend = AgentBackend & Partial<{
   setSessionModel: (sessionId: SessionId, modelId: string) => Promise<void>;
@@ -14,7 +15,13 @@ type ConfigurableCatalogBackend = AgentBackend & Partial<{
     configId: string,
     value: string | number | boolean | null,
   ) => Promise<void>;
+  getSessionConfigOptionsState: () => ReadonlyArray<SessionConfigOption> | null;
 }>;
+
+type SessionControlResolvers = Pick<
+  Parameters<typeof withExecutionRunBackendModelOptions>[1],
+  'resolveSessionModelConfigUpdate' | 'resolveSessionConfigOptionUpdate'
+>;
 
 function createLazyCatalogExecutionRunBackend(
   agentId: AgentId,
@@ -23,6 +30,7 @@ function createLazyCatalogExecutionRunBackend(
   const handlers = new Set<AgentMessageHandler>();
   const registeredHandlers = new Set<AgentMessageHandler>();
   let backendPromise: Promise<ConfigurableCatalogBackend> | null = null;
+  let readyBackend: ConfigurableCatalogBackend | null = null;
 
   const resolveBackend = async (): Promise<ConfigurableCatalogBackend> => {
     if (!backendPromise) {
@@ -35,6 +43,7 @@ function createLazyCatalogExecutionRunBackend(
         mcpServers: await options.resolveMcpServers?.() ?? {},
       }))().then(({ backend }) => {
         const resolved = backend as ConfigurableCatalogBackend;
+        readyBackend = resolved;
         for (const handler of handlers) {
           resolved.onMessage(handler);
           registeredHandlers.add(handler);
@@ -107,17 +116,24 @@ function createLazyCatalogExecutionRunBackend(
     async setSessionConfigOption(sessionId, configId, value) {
       await (await resolveBackend()).setSessionConfigOption?.(sessionId, configId, value);
     },
+    getSessionConfigOptionsState() {
+      return readyBackend?.getSessionConfigOptionsState?.() ?? null;
+    },
     async dispose() {
       await (await backendPromise?.catch(() => null))?.dispose();
     },
   };
 }
 
-export function createCatalogDefinedExecutionRunBackendFactory(agentId: AgentId): ExecutionRunBackendFactory {
+export function createCatalogDefinedExecutionRunBackendFactory(
+  agentId: AgentId,
+  sessionControlResolvers?: SessionControlResolvers,
+): ExecutionRunBackendFactory {
   const modelConfig = getAgentModelConfig(agentId);
   return (options) => withExecutionRunBackendModelOptions(
     createLazyCatalogExecutionRunBackend(agentId, options),
     {
+      ...sessionControlResolvers,
       ...(options.modelId ? { modelId: options.modelId } : {}),
       modelApply: {
         method: modelConfig.acpModelSetMethod ?? 'set_model',

@@ -106,6 +106,26 @@ stop owner, not a machine guess in the coordinator.
 Inspection and the preview grant no authority and persist nothing; the mutation
 revalidates every fact inspection reported.
 
+## Ordered turns in the Workbench fork
+
+The **Hand off** action in agent autocomplete opens an editable sequence.
+The composer also recognizes
+`@claude draft this, then @gemini review it, then back to @claude revise it`.
+Every step specifies a backend target, an optional model, and a prompt. Repeated
+targets are valid. The words in the prompt tell the agent what to do.
+
+The composer submits the previewed list to the session's worker through the
+existing Session-write RPC. The `turn_sequence` request requires positive
+worker capability. The worker submits a normal prompt when the target already
+owns the session and can report sequence completion. It uses the native
+same-session transition for a different target. For an older adopted runner,
+restart the runner before an in-place first turn. Stable input identifiers tie the submitted steps to the turns that
+must finish before the worker advances. Each step produces a normal reply in
+the session. Native transition replay carries the text context forward. A
+returning agent can resume its provider conversation when eligible. An
+unrelated turn or an unconfirmed completion stops the sequence. A daemon
+restart drops the pending steps and preserves the transcript.
+
 ## Preconditions
 
 `inspectSessionContinuation` and `runSessionAgentTransition` share their

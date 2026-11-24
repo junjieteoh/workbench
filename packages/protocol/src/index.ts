@@ -444,6 +444,7 @@ export {
   BackendTargetKindSchema,
   BackendTargetRefSchema,
   buildBackendTargetKey,
+  getBackendTargetAgentId,
   isBuiltInAgentTarget,
   isConfiguredAcpBackendTarget,
   parseBackendTargetKey,
@@ -3765,3 +3766,13 @@ export {
   type ClaudeSessionRetentionPolicyV1,
   type ClaudeSessionRetentionReportV1,
 } from './providers/claude/sessionRetention.js';
+export {
+  SessionAgentSequenceRequestV1Schema,
+  SessionAgentSequenceResultV1Schema,
+  SessionAgentTurnSequenceRequestV1Schema,
+  SessionAgentTurnSequenceResultV1Schema,
+  type SessionAgentSequenceRequestV1,
+  type SessionAgentSequenceResultV1,
+  type SessionAgentTurnSequenceRequestV1,
+  type SessionAgentTurnSequenceResultV1,
+} from './sessionAgentSequence.js';
