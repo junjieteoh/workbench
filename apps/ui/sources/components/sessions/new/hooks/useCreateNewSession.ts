@@ -625,7 +625,7 @@ export function useCreateNewSession(params: Readonly<{
                     sessionId, machineId: current.selectedMachineId!, serverId: resolvedTargetServerId,
                     expectedCurrentBackendTarget,
                     expectedCurrentAgentId: getBackendTargetAgentId(expectedCurrentBackendTarget),
-                    steps: sequenceSteps, startRequestId,
+                    steps: sequenceSteps, startRequestId, waitForRunnerPresence: true,
                 });
                 if (!receipt.ok) throw new Error(receipt.error);
             };

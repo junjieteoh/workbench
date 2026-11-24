@@ -2,6 +2,10 @@ import { getBackendTargetAgentId, type SessionAgentTurnSequenceRequestV1 } from 
 import { z } from 'zod';
 import { machineCapabilitiesDetect } from '@/sync/ops/capabilities';
 import { sessionAgentTurnSequenceOnMachine } from '@/sync/ops/sessionAgentTransition';
+import { waitForSessionHandoffTargetSessionActive } from '@/sync/domains/sessionHandoff/waitForSessionHandoffTargetSessionActive';
+import { storage } from '@/sync/domains/state/storage';
+import { areServerAccountScopesEqual } from '@/sync/domains/scope/serverAccountScope';
+import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
 type Request = SessionAgentTurnSequenceRequestV1;
@@ -13,6 +17,7 @@ export type StartSessionAgentSequenceParams = Readonly<{
     expectedCurrentBackendTarget: Request['expectedCurrentBackendTarget'];
     steps: Request['steps'];
     startRequestId: string;
+    waitForRunnerPresence?: boolean;
 }>;
 
 export async function startSessionAgentSequence(params: StartSessionAgentSequenceParams): Promise<
@@ -31,6 +36,32 @@ export async function startSessionAgentSequence(params: StartSessionAgentSequenc
         }
     } catch {
         return { ok: false, error: unavailable };
+    }
+
+    if (params.waitForRunnerPresence) {
+        // A spawn acknowledgement precedes the relay presence update for a resumed runner.
+        // Wait before issuing the request so an early command cannot claim the first turn.
+        const scope = storage.getState().profileScope;
+        const readSession = () => storage.getState().sessions[params.sessionId];
+        try {
+            const ready = await waitForSessionHandoffTargetSessionActive({
+                sessionId: params.sessionId,
+                ensureSessionVisible: async sessionId => {
+                    await sync.ensureSessionVisibleForMessageRoute(sessionId, {
+                        forceRefresh: true,
+                        ...(params.serverId ? { serverId: params.serverId } : {}),
+                    });
+                },
+                readSession,
+                readTargetMachineId: () => readSession()?.metadata?.machineId ?? null,
+                targetMachineId: params.machineId,
+            });
+            if (!ready.ok || (scope && !areServerAccountScopesEqual(scope, storage.getState().profileScope))) {
+                return { ok: false, error: t('session.resumeFailed') };
+            }
+        } catch {
+            return { ok: false, error: t('session.resumeFailed') };
+        }
     }
 
     const unknown = t('session.agentContinuation.transition.unknown');

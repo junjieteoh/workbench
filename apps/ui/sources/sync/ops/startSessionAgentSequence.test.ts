@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { submit, detect } = vi.hoisted(() => ({ submit: vi.fn(), detect: vi.fn() }));
+const { submit, detect, ensureVisible, readState } = vi.hoisted(() => ({
+    submit: vi.fn(), detect: vi.fn(), ensureVisible: vi.fn(), readState: vi.fn(),
+}));
 vi.mock('@/sync/ops/sessionAgentTransition', () => ({ sessionAgentTurnSequenceOnMachine: submit }));
 vi.mock('@/sync/ops/capabilities', () => ({ machineCapabilitiesDetect: detect }));
+vi.mock('@/sync/sync', () => ({ sync: { ensureSessionVisibleForMessageRoute: ensureVisible } }));
+vi.mock('@/sync/domains/state/storage', () => ({ storage: { getState: readState } }));
 
 import { startSessionAgentSequence, type StartSessionAgentSequenceParams } from './startSessionAgentSequence';
 
@@ -38,6 +42,20 @@ describe('submit an ordered sequence of foreground turns', () => {
         detect.mockResolvedValue({ supported: true, response: { results: { 'tool.sessionAgentTransition': { ok: true, data: { supportsAgentSequence: true } } } } });
         expect((await startSessionAgentSequence(input)).ok).toBe(false);
         expect(submit).not.toHaveBeenCalled();
+    });
+
+    it('waits for relay activity and machine binding after Resume before submitting any turn', async () => {
+        let activate!: () => void;
+        const activating = new Promise<void>(resolve => { activate = resolve; });
+        ensureVisible.mockReturnValue(activating);
+        readState.mockReturnValue({ sessions: { 'thread-a': { active: false, metadata: { machineId: 'machine-x' } } } });
+        const sending = startSessionAgentSequence({ ...input, waitForRunnerPresence: true });
+        await vi.waitFor(() => expect(ensureVisible).toHaveBeenCalledWith('thread-a', { forceRefresh: true, serverId: 'private' }));
+        expect(submit).not.toHaveBeenCalled();
+        readState.mockReturnValue({ sessions: { 'thread-a': { active: true, metadata: { machineId: 'machine-x' } } } });
+        activate();
+        expect(await sending).toEqual({ ok: true });
+        expect(submit).toHaveBeenCalledTimes(1);
     });
 
     it('does not silently accept or replay an uncertain dispatch', async () => {

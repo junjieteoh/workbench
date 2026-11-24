@@ -5424,7 +5424,10 @@ function SessionViewLoaded({
                     // A failed resume keeps the draft, the armed selection, and the retry ID.
                     if (!isSessionActive && !await handleResumeSession()) return;
                     if (!areServerAccountScopesEqual(activeServerAccountScope, getActiveServerAccountScope())) return;
-                    const result = await startSessionAgentSequence(attempt.request);
+                    const result = await startSessionAgentSequence({
+                        ...attempt.request,
+                        ...(!isSessionActive ? { waitForRunnerPresence: true } : {}),
+                    });
                     if (!result.ok) {
                         Modal.alert(t('common.error'), result.error);
                         return;
