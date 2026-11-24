@@ -9,7 +9,7 @@ const command: SessionAgentTurnSequenceRequestV1 = {
     steps: [writer, reviewer, writer].map((backendTarget, index) => ({ backendTarget, modelId: null, instructions: ['Draft', 'Review', 'Revise'][index]! })),
 };
 function setup() {
-    const runner = { pid: 1, activeTurnId: null as string | null };
+    const runner = { pid: 1, activeTurnId: null as string | null, supportsInPlaceSequence: true };
     const dispatch = vi.fn(async (_request: SessionAgentTurnSequenceRequestV1, _index: number, _localId: string, guard: () => boolean) => guard());
     const stopped = vi.fn(async () => {});
     const owner = createForegroundTurnSequence({ readRunner: () => runner, claim: async () => true, dispatch, stopped });
@@ -26,6 +26,17 @@ function setup() {
     return { owner, dispatch, stopped, runner, bind, end };
 }
 describe('ordered foreground turns', () => {
+    it('rejects work on an older adopted runner before its first prompt and permits a switch to a fresh runner', async () => {
+        const h = setup();
+        h.runner.supportsInPlaceSequence = false;
+        expect(await h.owner.start(command)).toEqual({ status: 'rejected', reason: 'source_runtime_update_required' });
+        expect(h.dispatch).not.toHaveBeenCalled();
+
+        const switchFirst = { ...command, steps: [command.steps[1]!, command.steps[0]!] };
+        expect(await h.owner.start(switchFirst)).toEqual({ status: 'started' });
+        expect(h.dispatch).toHaveBeenCalledTimes(1);
+    });
+
     it('runs A → B → A only upon each exact successful turn and never dispatches a fourth input', async () => {
         const h = setup();
         expect(await h.owner.start(command)).toEqual({ status: 'started' });

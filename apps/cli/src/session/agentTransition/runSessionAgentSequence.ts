@@ -47,7 +47,7 @@ export function readSequencePlan(result: unknown, runId: string, target: Backend
 
 type NativeSequenceDependencies = Readonly<{
     credentials: Credentials;
-    readRunner: (sessionId: string) => { pid: number; activeTurnId: string | null } | null;
+    readRunner: Parameters<typeof createForegroundTurnSequence>[0]['readRunner'];
     transition: (request: SessionAgentTransitionRequestV1, canStopSource: () => boolean) => Promise<boolean>;
 }>;
 

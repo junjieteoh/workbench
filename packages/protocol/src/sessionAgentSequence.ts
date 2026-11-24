@@ -49,6 +49,7 @@ export const SessionAgentTurnSequenceResultV1Schema = lazySchema(() => z.discrim
     z.strictObject({ status: z.literal('started') }),
     z.strictObject({ status: z.literal('rejected'), reason: z.enum([
         'unsupported', 'invalid_request', 'already_queued', 'source_busy', 'source_changed', 'step_start_failed', 'previous_request',
+        'source_runtime_update_required',
     ]) }),
 ]));
 export type SessionAgentTurnSequenceResultV1 = z.infer<typeof SessionAgentTurnSequenceResultV1Schema>;

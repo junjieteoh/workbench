@@ -19,7 +19,7 @@ type Active = { command: Request; step: Step };
 type StopReason = 'failed' | 'interrupted' | 'unconfirmed';
 
 export function createForegroundTurnSequence(deps: Readonly<{
-    readRunner: (sessionId: string) => { pid: number; activeTurnId: string | null } | null;
+    readRunner: (sessionId: string) => { pid: number; activeTurnId: string | null; supportsInPlaceSequence?: boolean } | null;
     claim: (command: Request) => Promise<boolean>;
     dispatch: (command: Request, index: number, localId: string, guard: () => boolean) => Promise<boolean>;
     stopped: (command: Request, reason: StopReason, index: number) => Promise<void>;
@@ -61,6 +61,10 @@ export function createForegroundTurnSequence(deps: Readonly<{
         const source = deps.readRunner(command.sessionId);
         if (!source || source.activeTurnId !== null) return Promise.resolve({ status: 'rejected', reason: 'source_busy' });
         const entry = { command, step: stepFor(command, 0, source.pid) };
+        // A switch spawns a current runner. An in-place prompt needs the existing runner to report its input and completion.
+        if (!entry.step.switchesRunner && source.supportsInPlaceSequence === false) {
+            return Promise.resolve({ status: 'rejected', reason: 'source_runtime_update_required' });
+        }
         active.set(command.sessionId, entry);
         const receipt = Promise.resolve().then(async (): Promise<Result> => {
             try {

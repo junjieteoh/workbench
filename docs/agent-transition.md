@@ -117,8 +117,9 @@ targets are valid. The words in the prompt tell the agent what to do.
 The composer submits the previewed list to the session's worker through the
 existing Session-write RPC. The `turn_sequence` request requires positive
 worker capability. The worker submits a normal prompt when the target already
-owns the session and uses the native same-session transition for a different
-target. Stable input identifiers tie the submitted steps to the turns that
+owns the session and can report sequence completion. It uses the native
+same-session transition for a different target. For an older adopted runner,
+restart the runner before an in-place first turn. Stable input identifiers tie the submitted steps to the turns that
 must finish before the worker advances. Each step produces a normal reply in
 the session. Native transition replay carries the text context forward. A
 returning agent can resume its provider conversation when eligible. An

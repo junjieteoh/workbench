@@ -5093,7 +5093,15 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         const readTransitionRunner = (sessionId: string) => {
           const [runner, duplicate] = getCurrentChildren().filter((child) => child.happySessionId === sessionId);
           if (!runner || duplicate) return null;
-          return { pid: runner.sessionRunnerPid ?? runner.pid, activeTurnId: runner.activeTurnId ?? null };
+          return {
+            pid: runner.sessionRunnerPid ?? runner.pid,
+            activeTurnId: runner.activeTurnId ?? null,
+            supportsInPlaceSequence: !runner.reattachedFromDiskMarker || resolveSessionRunnerRuntimeState({
+              sessionId,
+              tracked: runner,
+              currentIdentity: resolveCurrentSessionRunnerLaunchIdentity(),
+            }).versionState === 'current',
+          };
         };
         const runGuardedTransition = async (request: SessionAgentTransitionRequestV1, canStopSource: () => boolean) => {
           const result = await runSessionAgentTransition({

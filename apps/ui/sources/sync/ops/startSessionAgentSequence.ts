@@ -51,6 +51,7 @@ export async function startSessionAgentSequence(params: StartSessionAgentSequenc
             case 'previous_request': return { ok: false, error: unknown };
             case 'unsupported': return { ok: false, error: unavailable };
             case 'already_queued': return { ok: false, error: t('session.agentContinuation.handoffAlreadyQueued') };
+            case 'source_runtime_update_required': return { ok: false, error: t('session.staleRunner.body') };
             case 'source_changed': return { ok: false, error: stale };
             case 'source_busy': return { ok: false, error: t('session.agentContinuation.transition.rejected.sourceNotIdle', { agent: params.expectedCurrentAgentId }) };
             case 'step_start_failed': return { ok: false, error: unknown };
