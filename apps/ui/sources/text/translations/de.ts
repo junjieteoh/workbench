@@ -6607,8 +6607,11 @@ export const de: TranslationStructure = {
 
     agentInput: {
         sequence: {
-            planOnly: "Plant nur",
-            takesOver: "Übernimmt",
+            handOff: "Übergeben",
+            takeOverTask: "Übernimm die Aufgabe aus dem vorherigen Schritt.",
+            turn: ({ index }: { index: number }) => `Schritt ${index}`,
+            addTurn: "Schritt hinzufügen",
+            incomplete: "Wähle für jeden Schritt einen Agenten und gib Anweisungen ein.",
             loading: "Agenten werden geladen…",
             unknown: "Wähle für jeden Schritt einen Agenten.",
             unavailable: "Diese Agenten stehen für eine Übergabe nicht zur Verfügung.",

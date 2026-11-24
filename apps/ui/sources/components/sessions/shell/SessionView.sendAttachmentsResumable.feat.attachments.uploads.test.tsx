@@ -270,6 +270,12 @@ vi.mock('@/hooks/session/useDraft', () => ({
                     address,
                 }),
             }),
+            clearSubmittedDraftAfterFlush: async (snapshot: Readonly<{ text: string }>) => {
+                if (textStore.getPrompt() !== snapshot.text) return false;
+                draftHookState.valuesBySessionId.set(_sessionId, '');
+                onChange('');
+                return true;
+            },
             clearDraftCurrentness: (snapshot: Readonly<{ text: string; currentness?: any }>) => {
                 if (!snapshot.currentness) return false;
                 const currentText = draftHookState.valuesBySessionId.get(_sessionId) ?? '';
@@ -394,7 +400,10 @@ vi.mock('@/sync/ops/actions/defaultActionExecutor', () => ({
 
 vi.mock('@/components/sessions/agentPicker/useInSessionAgentPickerControls', () => ({
     useInSessionAgentPickerControls: () => ({
-        eligibleSequenceSuccessors: [{ targetKey: 'agent:gemini', target: { kind: 'builtInAgent', agentId: 'gemini' }, providerAgentId: 'gemini', title: 'Gemini' }],
+        eligibleSequenceSuccessors: [
+            { targetKey: 'agent:claude', target: { kind: 'builtInAgent', agentId: 'claude' }, providerAgentId: 'claude', title: 'Claude' },
+            { targetKey: 'agent:gemini', target: { kind: 'builtInAgent', agentId: 'gemini' }, providerAgentId: 'gemini', title: 'Gemini' },
+        ],
         composeAgentPickerOptions: (options: unknown) => options,
         agentPickerSelectedOptionId: null,
         armedContinuation: armedContinuationState.intent,
@@ -2191,21 +2200,26 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             sessionState.session.presence = 'online';
             sessionMachineTargetState.available = true;
             reviewCommentDraftsState.current = [];
-            featureEnabledState.executionRuns = true;
+            featureEnabledState.executionRuns = false;
             sequenceStart.mockReset().mockResolvedValueOnce({ ok: false, error: 'Unavailable' }).mockResolvedValue({ ok: true });
             const screen = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
             try {
                 const input = () => findTestInstanceByTypeWithProps(screen.tree!, 'AgentInput', {})!;
-                const text = '@opus plan first then @gemini take over';
+                const text = '@opus draft this, then @gemini review it, then back to @claude revise';
                 const stage = (agentId: string, modelId: string | null) => ({ target: { agentId, label: agentId, backendTarget: { kind: 'builtInAgent', agentId } }, modelId, modelLabel: modelId ?? agentId });
-                const submit = () => invokeTestInstanceHandler(input(), 'onSend', { inputTextOverride: text, agentSequence: { planner: stage('claude','opus'), successor: stage('gemini', null) } }, 'AgentInput');
+                const submit = () => invokeTestInstanceHandler(input(), 'onSend', {
+                    inputTextOverride: text, agentSequence: [stage('claude', 'opus'), stage('gemini', null), stage('claude', 'other')],
+                }, 'AgentInput');
                 await act(async () => { invokeTestInstanceHandler(input(), 'onChangeText', text, 'AgentInput'); });
                 await act(async () => { submit(); submit(); await Promise.all(pendingFireAndForget); });
                 expect(sequenceStart).toHaveBeenCalledTimes(1);
                 expect(sequenceStart).toHaveBeenCalledWith(expect.objectContaining({
-                    sessionId: 's1', context: 'Lead: the actual draft', startRequestId: expect.any(String),
-                    planner: expect.objectContaining({ modelId: 'opus', instructions: 'plan first' }),
-                    successor: expect.objectContaining({ modelId: null, instructions: 'take over' }),
+                    sessionId: 's1', startRequestId: expect.any(String),
+                    steps: [
+                        expect.objectContaining({ modelId: 'opus', instructions: 'draft this' }),
+                        expect.objectContaining({ modelId: null, instructions: 'review it' }),
+                        expect.objectContaining({ modelId: 'other', instructions: 'revise' }),
+                    ],
                 }));
                 expect(draftHookState.valuesBySessionId.get('s1')).toBe(text);
                 await act(async () => { submit(); await Promise.all(pendingFireAndForget); });

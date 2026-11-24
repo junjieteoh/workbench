@@ -6776,8 +6776,11 @@ export const zhHans: TranslationStructure = {
 
   agentInput: {
       sequence: {
-          planOnly: "仅规划",
-          takesOver: "接手任务",
+          handOff: "交接",
+          takeOverTask: "接手上一轮的工作。",
+          turn: ({ index }: { index: number }) => `轮次 ${index}`,
+          addTurn: "添加轮次",
+          incomplete: "请为每一轮选择智能体并添加指令。",
           loading: "正在加载智能体…",
           unknown: "请为每个步骤选择一个智能体。",
           unavailable: "这些智能体目前无法交接任务。",

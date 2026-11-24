@@ -52,6 +52,7 @@ export function useDraft(
 ) {
     const { autoSaveInterval = 2000 } = options;
     const onChange = textStore.setPrompt;
+    const submittedDraftClear = useRef<SessionDraftTextSnapshot | null>(null);
     const scope = useActiveServerAccountScope();
     const address = useMemo(() => sessionId ? { kind: 'session' as const, sessionId } : null, [sessionId]);
     const subscribeToDraft = useCallback((listener: () => void) => {
@@ -68,11 +69,13 @@ export function useDraft(
     // host per keystroke nor re-adopts the value that is still waiting for its debounced flush.
     const readStoredDraftTrigger = useCallback((): string | typeof ABSENT_STORED_DRAFT | null => {
         if (!scope || !address) return null;
+        const submitted = submittedDraftClear.current;
+        if (submitted && submitted.sessionId === sessionId && submitted.scope === scope && submitted.text === textStore.getPrompt()) return null;
         const snapshot = getSessionDraftSnapshot(scope, address);
         if (!snapshot) return ABSENT_STORED_DRAFT;
         const stored = snapshot.document.composer.text.value;
         return stored === textStore.getPrompt() ? null : stored;
-    }, [address, scope, textStore]);
+    }, [address, scope, sessionId, textStore]);
     const storedDraft = useSyncExternalStore(subscribeToDraft, readStoredDraftTrigger, readStoredDraftTrigger);
     const readDraftConflict = useCallback(() => readDraftSnapshot()?.conflict ?? null, [readDraftSnapshot]);
     const draftConflict = useSyncExternalStore(subscribeToDraft, readDraftConflict, readDraftConflict);
@@ -364,6 +367,8 @@ export function useDraft(
         }
 
         if (!active) return;
+        const submitted = submittedDraftClear.current;
+        if (submitted && submitted.sessionId === sessionId && submitted.scope === scope && submitted.text === currentValue) return;
 
         // A repository tombstone is an authoritative remote clear once this mounted composer
         // has observed the draft. Initial absence is not a clear signal: it may precede scope
@@ -660,6 +665,35 @@ export function useDraft(
         return didClear;
     }, [onChange, saveDraftForSession]);
 
+    const clearSubmittedDraftAfterFlush = useCallback(async (snapshot: SessionDraftTextSnapshot): Promise<boolean> => {
+        if (!snapshot.scope || !snapshot.currentness) return false;
+        const targetAddress = { kind: 'session' as const, sessionId: snapshot.sessionId };
+        submittedDraftClear.current = snapshot;
+        try {
+            // The accepted send is visible once the captured draft clear has reached storage.
+            // A fast browser close after the composer empties must not resurrect this draft.
+            await clearSessionDraftCurrentness({
+                scope: snapshot.scope, address: targetAddress, currentness: snapshot.currentness,
+            });
+            const persisted = await flushSessionDraft({ scope: snapshot.scope, address: targetAddress });
+            if (persisted.status !== 'clean' && persisted.status !== 'local-only') return false;
+            if (lastSessionId.current !== snapshot.sessionId || lastSessionScope.current !== snapshot.scope
+                || latestValue.current !== snapshot.text) return false;
+            const remainingText = getSessionDraftSnapshot(snapshot.scope, targetAddress)?.document.composer.text.value ?? '';
+            if (remainingText !== '') return false;
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+            latestValue.current = '';
+            lastSavedValue.current = '';
+            onChange('');
+            return true;
+        } finally {
+            if (submittedDraftClear.current === snapshot) submittedDraftClear.current = null;
+        }
+    }, [onChange]);
+
     return {
         clearDraft,
         clearDraftIfCurrentValueMatches,
@@ -670,6 +704,7 @@ export function useDraft(
         restoreComposerSnapshot,
         captureDraftForOutboundHandoff,
         clearDraftCurrentness,
+        clearSubmittedDraftAfterFlush,
         draftConflict,
         draftStatus,
         draftScope: scope,

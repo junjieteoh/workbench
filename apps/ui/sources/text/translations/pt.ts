@@ -7111,8 +7111,11 @@ export const pt: TranslationStructure = {
 
   agentInput: {
       sequence: {
-          planOnly: "Só planeja",
-          takesOver: "Assume a tarefa",
+          handOff: "Transferir",
+          takeOverTask: "Assuma a tarefa do turno anterior.",
+          turn: ({ index }: { index: number }) => `Turno ${index}`,
+          addTurn: "Adicionar turno",
+          incomplete: "Escolha um agente e adicione instruções para cada turno.",
           loading: "Carregando agentes…",
           unknown: "Escolha um agente para cada etapa.",
           unavailable: "Esses agentes não estão disponíveis para transferir a tarefa.",

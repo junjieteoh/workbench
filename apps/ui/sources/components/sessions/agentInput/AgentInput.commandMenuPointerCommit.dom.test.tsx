@@ -321,7 +321,7 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         expect(onSend).toHaveBeenCalledTimes(1);
         expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
             inputTextOverride: text,
-            agentSequence: { planner: { target: claude, modelId: 'opus-test', modelLabel: 'Opus' }, successor: expect.objectContaining({ target: gemini, modelId: null }) },
+            agentSequence: [{ target: claude, modelId: 'opus-test', modelLabel: 'Opus' }, expect.objectContaining({ target: gemini, modelId: null })],
         }));
     });
 
@@ -363,11 +363,11 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         expect(onSend).not.toHaveBeenCalled();
         await act(async () => { composer.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
         expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
-            agentSequence: { planner: expect.objectContaining({ target: claude, modelId: 'model-a' }), successor: expect.objectContaining({ target: gemini }) },
+            agentSequence: [expect.objectContaining({ target: claude, modelId: 'model-a' }), expect.objectContaining({ target: gemini })],
         }));
     });
 
-    it('changes either actor in the real composer, keeps both tasks, and submits the edited pair', async () => {
+    it('changes agents and instructions including a return turn and submits the exact preview', async () => {
         const target = (id: 'claude' | 'codex' | 'gemini') => ({
             agentId: id, label: id, backendTarget: { kind: 'builtInAgent' as const, agentId: id },
         });
@@ -385,17 +385,65 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
             });
             await act(async () => { element.click(); });
         };
-        await typeIntoComposer(composer, '@opus plan first then @gemini take over');
+        await typeIntoComposer(composer, '@opus plan first then @gemini take over, then back to @claude to revise');
         await click('composer-sequence-agent-0');
         await click('composer-sequence-option-@codex');
-        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @gemini take over'));
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @gemini take over, then back to @claude to revise'));
         await click('composer-sequence-agent-1');
         await click('composer-sequence-option-@claude/opus');
-        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @claude/opus take over'));
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first then @claude/opus take over, then back to @claude to revise'));
+        const third = document.querySelector<HTMLTextAreaElement>('[data-testid="composer-sequence-task-2"]')!;
+        expect(third.value).toBe('revise');
+        await typeIntoComposer({ text: () => third.value, textarea: third }, 'polish the summary');
+        await vi.waitFor(() => expect(composer.text()).toContain('@claude to polish the summary'));
+        await click('composer-sequence-add');
+        await vi.waitFor(() => expect(composer.text()).toMatch(/, then @$/));
+        await click('session-composer-send');
+        expect(onSend).not.toHaveBeenCalled();
+        await click('composer-sequence-order-3');
+        await click('composer-sequence-remove');
+        await click('composer-sequence-order-2');
+        await click('composer-sequence-up');
+        await vi.waitFor(() => expect(composer.text()).toBe('@codex plan first, then @claude polish the summary, then @claude/opus take over'));
         expect(onSend).not.toHaveBeenCalled();
         await click('session-composer-send');
         expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
-            inputTextOverride: composer.text(), agentSequence: { planner: expect.objectContaining({ target: actors[2] }), successor: expect.objectContaining({ target: actors[0], modelId: 'opus' }) },
+            inputTextOverride: composer.text(), agentSequence: [expect.objectContaining({ target: actors[2] }), expect.objectContaining({ target: actors[0], modelId: null }), expect.objectContaining({ target: actors[0], modelId: 'opus' })],
+        }));
+    });
+
+    it.each([
+        ['cursor', 'codex'],
+        ['gemini', 'claude'],
+    ] as const)('stages %s → %s from the agent menu and sends only after preview', async (firstId, nextId) => {
+        const source = { agentId: firstId, label: firstId, backendTarget: { kind: 'builtInAgent', agentId: firstId } } as const;
+        const target = { agentId: nextId, label: nextId, backendTarget: { kind: 'builtInAgent', agentId: nextId } } as const;
+        const onSend = vi.fn();
+        const onStage = vi.fn();
+        const composer = await renderSessionComposer({
+            matchesTargetPrefix: query => nextId.startsWith(query),
+            resolveTargets: async () => [],
+            resolveModels: async () => [{ id: 'selected-model', label: 'Chosen model' }],
+            reviewEnabled: false,
+            handoff: {
+                first: { target: source, modelId: 'selected-model', modelLabel: 'Chosen model' },
+                targets: [source, target],
+                onStage,
+            },
+        }, onSend, { currentTargetKey: 'agent:' + firstId, successorTargets: [source, target] });
+        await typeIntoComposer(composer, 'Write a short math question and hand over to @' + nextId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + nextId)).not.toBeNull());
+        await pressRow(composer, 'agentReview:' + nextId);
+        await vi.waitFor(() => expect(findMenuRow('agentReview:' + nextId + '/handoff')).not.toBeNull());
+        expect(findMenuRow('agentReview:' + nextId + '/selected-model')).toBeNull();
+        await pressRow(composer, 'agentReview:' + nextId + '/handoff');
+        await vi.waitFor(() => expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Chosen model'));
+        expect(document.querySelector<HTMLTextAreaElement>('[data-testid="composer-sequence-task-0"]')?.value).toBe('Write a short math question');
+        expect(onStage).toHaveBeenCalledTimes(1);
+        expect(onSend).not.toHaveBeenCalled();
+        await act(async () => { document.querySelector<HTMLElement>('[data-testid="session-composer-send"]')?.click(); });
+        expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
+            agentSequence: [expect.objectContaining({ target: source, modelId: 'selected-model' }), expect.objectContaining({ target, modelId: null })],
         }));
     });
 

@@ -1,34 +1,48 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const { execute, detect } = vi.hoisted(() => ({ execute: vi.fn(), detect: vi.fn() }));
-vi.mock('@/sync/ops/actions/defaultActionExecutor', () => ({ createDefaultActionExecutor: () => ({ execute }) }));
+
+const { submit, detect } = vi.hoisted(() => ({ submit: vi.fn(), detect: vi.fn() }));
+vi.mock('@/sync/ops/sessionAgentTransition', () => ({ sessionAgentTurnSequenceOnMachine: submit }));
 vi.mock('@/sync/ops/capabilities', () => ({ machineCapabilitiesDetect: detect }));
-import { startSessionAgentSequence } from './startSessionAgentSequence';
-const lead = { kind: 'builtInAgent', agentId: 'codex' } as const;
-const input = {
-    machineId: 'machine-x', sessionId: 'thread-a', serverId: 'private', expectedCurrentAgentId: 'codex',
-    expectedCurrentBackendTarget: lead, planner: { backendTarget: { kind: 'builtInAgent', agentId: 'gemini' }, modelId: 'selected-planner', instructions: 'Plan first.' },
-    successor: { backendTarget: { kind: 'configuredAcpBackend', backendId: 'the-team-editor' }, modelId: null, instructions: 'Take over.' },
-    context: 'Design a fountain.', startRequestId: 'composer-1',
-} as const;
-describe('submit both composer steps', () => {
+
+import { startSessionAgentSequence, type StartSessionAgentSequenceParams } from './startSessionAgentSequence';
+
+const claude = { kind: 'builtInAgent', agentId: 'claude' } as const;
+const gemini = { kind: 'builtInAgent', agentId: 'gemini' } as const;
+const input: StartSessionAgentSequenceParams = {
+    machineId: 'machine-x', sessionId: 'thread-a', serverId: 'private', expectedCurrentAgentId: 'claude',
+    expectedCurrentBackendTarget: claude, startRequestId: 'composer-1',
+    steps: [
+        { backendTarget: claude, modelId: 'first-model', instructions: 'Draft the update.' },
+        { backendTarget: gemini, modelId: null, instructions: 'Review the draft.' },
+        { backendTarget: claude, modelId: 'second-model', instructions: 'Revise based on the review.' },
+    ],
+};
+
+describe('submit an ordered sequence of foreground turns', () => {
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
+        detect.mockResolvedValue({ supported: true, response: { results: { 'tool.sessionAgentTransition': { ok: true, data: { supportsAgentTurnSequence: true } } } } });
+        submit.mockResolvedValue({ status: 'started' });
+    });
+
+    it('sends every previewed instruction and chosen model in one request to the owning machine', async () => {
+        expect(await startSessionAgentSequence(input)).toEqual({ ok: true });
+        expect(submit).toHaveBeenCalledWith({
+            machineId: 'machine-x', serverId: 'private',
+            request: { action: 'turn_sequence', sessionId: 'thread-a', localId: 'composer-1', expectedCurrentBackendTarget: claude, steps: input.steps },
+        });
+    });
+
+    it('does not submit to an older daemon or an inconsistent source selection', async () => {
+        expect((await startSessionAgentSequence({ ...input, expectedCurrentAgentId: 'codex' })).ok).toBe(false);
         detect.mockResolvedValue({ supported: true, response: { results: { 'tool.sessionAgentTransition': { ok: true, data: { supportsAgentSequence: true } } } } });
-        execute.mockResolvedValue({ ok: true, result: { results: [{ key: 'agent:gemini', ok: true, result: { status: 'started', runId: 'run7' } }] } });
-    });
-    it('pins both targets, selected models, original lead and conversation together on approval and retry', async () => {
-        expect(await startSessionAgentSequence(input)).toEqual({ ok: true, status: 'started' });
-        expect(execute).toHaveBeenCalledWith('subagents.plan.start', {
-            sessionId: 'thread-a', backendTargetKeys: ['agent:gemini'], modelId: 'selected-planner', instructions: expect.stringContaining('Design a fountain.'),
-            sequence: { machineId: 'machine-x', localId: 'composer-1', expectedCurrentBackendTarget: lead, successor: input.successor },
-        }, { serverId: 'private', defaultSessionId: 'thread-a', surface: 'ui_button', actionRequestId: 'composer-1' });
-        execute.mockResolvedValue({ ok:true, result:{ kind:'approval_request_created', artifactId:'a1' } });
-        expect(await startSessionAgentSequence(input)).toEqual({ ok: true, status: 'awaiting_approval' });
-    });
-    it('sends nothing to an older daemon or an inconsistent source selection', async () => {
-        expect((await startSessionAgentSequence({ ...input, expectedCurrentAgentId: 'claude' })).ok).toBe(false);
-        detect.mockResolvedValue({ supported:true, response:{ results:{ 'tool.sessionAgentTransition':{ ok:true, data:{ supportsInputPermissionIntent:true } } } } });
         expect((await startSessionAgentSequence(input)).ok).toBe(false);
-        expect(execute).not.toHaveBeenCalled();
+        expect(submit).not.toHaveBeenCalled();
+    });
+
+    it('does not silently accept or replay an uncertain dispatch', async () => {
+        submit.mockRejectedValue(new Error('Lost response'));
+        expect((await startSessionAgentSequence(input)).ok).toBe(false);
+        expect(submit).toHaveBeenCalledTimes(1);
     });
 });

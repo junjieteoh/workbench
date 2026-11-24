@@ -8,7 +8,6 @@ import { selectCanonicalOutboundHandoffForLocalId } from '@/sync/domains/session
 import { AgentContentView } from '@/components/sessions/transcript/AgentContentView';
 import { useSessionAgentReviewComposer } from '@/components/sessions/agentInput/useSessionAgentReviewComposer';
 import { parseComposerAgentSequence } from '@/components/sessions/agentInput/sequence/composerAgentSequence';
-import { captureSessionAgentReviewContext } from '@/sync/ops/startSessionAgentReview';
 import { startSessionAgentSequence } from '@/sync/ops/startSessionAgentSequence';
 import { useSessionAgentReviewDraft } from '@/components/sessions/agentInput/useSessionAgentReviewDraft';
 import { getReviewAssignment } from '@/components/sessions/agentInput/sessionAgentReviewDraft';
@@ -4311,6 +4310,7 @@ function SessionViewLoaded({
         restoreComposerSnapshot,
         captureDraftForOutboundHandoff,
         clearDraftCurrentness,
+        clearSubmittedDraftAfterFlush,
         draftConflict,
         draftStatus,
         draftScope,
@@ -5278,11 +5278,13 @@ function SessionViewLoaded({
         return sessionAbort(sessionId);
     }, [sessionId]);
     const reviewDraft = useSessionAgentReviewDraft(draftScope, sessionId);
-    const canAddressReviewer = Boolean(draftScope && executionRunsEnabled && hasWriteAccess && isSessionActive
+    const canComposeSequence = Boolean(draftScope && hasWriteAccess && isSessionActive
         && shouldShowInput && isMachineReachable && !pendingMessageEdit && !recipientState.recipient
-        && !armedContinuationTarget && persistedVoiceComposerRouting?.kind !== 'adapter_text');
-    const agentReviewComposer = useSessionAgentReviewComposer({
-        enabled: canAddressReviewer,
+        && persistedVoiceComposerRouting?.kind !== 'adapter_text');
+    const canSubmitSequence = canComposeSequence && !armedContinuationTarget;
+    const canAddressReviewer = canSubmitSequence && executionRunsEnabled;
+    const agentBinding = useSessionAgentReviewComposer({
+        enabled: canComposeSequence,
         entries: sessionAgentCatalogEntries,
         machineId: controlMachineTarget?.machineId ?? machineId,
         serverId: capabilityServerId,
@@ -5296,11 +5298,42 @@ function SessionViewLoaded({
     const sequenceContext = React.useMemo(() => ({
         currentTargetKey: sessionAgentCurrentTargetKey,
         scopeKey: JSON.stringify([activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration, agentContinuationMachine.daemonGeneration]),
+        resolveModels: agentBinding?.resolveModels,
         successorTargets: inSessionAgentPicker.eligibleSequenceSuccessors.map(entry => ({
             targetKey: entry.targetKey, backendTarget: entry.target, agentId: entry.providerAgentId, label: entry.title,
         })),
     }), [sessionAgentCurrentTargetKey, activeServerAccountScopeKey, sessionId, machineId, socketConnectionGeneration,
-        agentContinuationMachine.daemonGeneration, inSessionAgentPicker.eligibleSequenceSuccessors]);
+        agentContinuationMachine.daemonGeneration, agentBinding?.resolveModels, inSessionAgentPicker.eligibleSequenceSuccessors]);
+    const { armedContinuation, armedContinuationLocalId, armedContinuationSubmission, clearArmedContinuation, onAgentPickerIntent } = inSessionAgentPicker;
+    const canStageHandoff = canComposeSequence && !armedContinuationSubmission && pendingTransitionOutcome === 'settled'
+        && !activeSourceTurnId && agentContinuationSource.storageKind !== 'direct'
+        && agentContinuationSource.machinePresence === 'online';
+    const agentReviewComposer = React.useMemo(() => {
+        if (!agentBinding || (!canAddressReviewer && !canStageHandoff)) return undefined;
+        const armed = armedContinuation?.selection;
+        const firstKey = armed
+            ? buildBackendTargetKey(armed.backendTarget ?? { kind: 'builtInAgent', agentId: armed.agentId })
+            : sessionAgentCurrentTargetKey;
+        const firstTarget = sequenceContext.successorTargets.find(target => target.targetKey === firstKey);
+        const targets = sequenceContext.successorTargets.filter(target => target.targetKey !== firstKey);
+        const model = armed ? armed.modelId : modelMode;
+        return {
+            ...agentBinding,
+            reviewEnabled: canAddressReviewer,
+            handoff: canStageHandoff && firstTarget && targets.length ? {
+                first: {
+                    target: firstTarget,
+                    modelId: model && model !== 'default' ? model : null,
+                    modelLabel: armedContinuationTarget?.modelLabel ?? model ?? '',
+                },
+                targets,
+                onStage: () => {
+                    if (armedContinuationLocalId) clearArmedContinuation(armedContinuationLocalId);
+                },
+            } : undefined,
+        };
+    }, [agentBinding, canAddressReviewer, canStageHandoff, armedContinuation, armedContinuationLocalId, clearArmedContinuation,
+        modelMode, armedContinuationTarget?.modelLabel, sessionAgentCurrentTargetKey, sequenceContext.successorTargets]);
     const sequenceAttempt = React.useRef<{ key: string; request: Parameters<typeof startSessionAgentSequence>[0] } | null>(null);
     const sendingSequence = React.useRef(false);
     const sendingReview = React.useRef(false);
@@ -5308,12 +5341,15 @@ function SessionViewLoaded({
         // Resolved per query, not per render: the machine target is imperative store state,
         // and a session that becomes reachable mid-composition must not need a rerender to
         // start offering files.
-        (query: string, signal: AbortSignal) => resolveSessionComposerSuggestions(sessionId, query, {
-            kinds: SESSION_COMPOSER_SUGGESTION_KINDS,
-            signal,
-            agentReview: agentReviewComposer,
-        }),
-        [agentReviewComposer, sessionId],
+        (query: string, signal: AbortSignal) => {
+            if (canStageHandoff && query.startsWith('@')) onAgentPickerIntent();
+            return resolveSessionComposerSuggestions(sessionId, query, {
+                kinds: SESSION_COMPOSER_SUGGESTION_KINDS,
+                signal,
+                agentReview: agentReviewComposer,
+            });
+        },
+        [agentReviewComposer, canStageHandoff, onAgentPickerIntent, sessionId],
     );
     const composerProfileId = liveComposerState.profileId;
     const handleProfileClick = React.useCallback(() => {
@@ -5348,9 +5384,9 @@ function SessionViewLoaded({
             const selected = sendOptions?.agentSequence;
             if (sendingSequence.current) return;
             const selectedMachine = agentContinuationMachine.machineId;
-            if (!selected || !typedSequence || !canAddressReviewer || !selectedMachine || activeSourceTurnId
+            if (!selected || !typedSequence || selected.length !== typedSequence.stages.length || !canSubmitSequence || !selectedMachine || activeSourceTurnId
                 || agentContinuationSource.storageKind === 'direct' || agentContinuationSource.machinePresence !== 'online'
-                || !sequenceContext.successorTargets.some(target => target.targetKey === buildBackendTargetKey(selected.successor.target.backendTarget))) {
+                || selected.some(choice => !sequenceContext.successorTargets.some(target => target.targetKey === buildBackendTargetKey(choice.target.backendTarget)))) {
                 Modal.alert(t('common.error'), t('agentInput.sequence.unavailable'));
                 return;
             }
@@ -5358,20 +5394,20 @@ function SessionViewLoaded({
                 Modal.alert(t('common.error'), t('session.participants.unsupportedAttachmentsOrReviewComments'));
                 return;
             }
-            const snapshot = captureDraftForOutboundHandoff?.() ?? { sessionId, text: composerMessage };
-            const key = JSON.stringify([activeServerAccountScopeKey, sessionId, selectedMachine, sessionAgentCurrentTargetKey,
-                composerMessage, selected.planner.target.backendTarget, selected.planner.modelId, selected.successor.target.backendTarget, selected.successor.modelId]);
+            const snapshot = captureDraftForOutboundHandoff(['composer.text']);
+            const steps = selected.map((choice, index) => ({
+                backendTarget: choice.target.backendTarget,
+                modelId: choice.modelId,
+                instructions: typedSequence.stages[index].instructions,
+            }));
+            const key = JSON.stringify([activeServerAccountScopeKey, sessionId, selectedMachine, sessionAgentCurrentTargetKey, steps]);
             if (sequenceAttempt.current?.key !== key) {
-                const stage = (choice: typeof selected.planner, instructions: string) => ({
-                    backendTarget: choice.target.backendTarget, modelId: choice.modelId, instructions,
-                });
                 sequenceAttempt.current = { key, request: {
                     sessionId, machineId: selectedMachine, serverId: agentContinuationMachine.serverId,
                     expectedCurrentAgentId: liveComposerState.agentId,
                     expectedCurrentBackendTarget: sessionActionDefaultBackend?.backendTarget ?? { kind: 'builtInAgent', agentId: liveComposerState.agentId },
-                    startRequestId: randomUUID(), context: captureSessionAgentReviewContext(sessionId, { includeUserOnly: true }),
-                    planner: stage(selected.planner, typedSequence.stages[0].instructions),
-                    successor: stage(selected.successor, typedSequence.stages[1].instructions),
+                    startRequestId: randomUUID(),
+                    steps,
                 } };
             }
             const attempt = sequenceAttempt.current;
@@ -5384,11 +5420,11 @@ function SessionViewLoaded({
                         Modal.alert(t('common.error'), result.error);
                         return;
                     }
-                    if (clearDraftForSessionIfCurrentValueMatches(snapshot)) {
+                    if (snapshot && await clearSubmittedDraftAfterFlush(snapshot)) {
                         if (reviewDraft.mention && reviewDraft.isCurrent(reviewDraft.mention)) reviewDraft.select(null);
                         inputComposerClearTransientStateRef.current();
+                        if (sequenceAttempt.current === attempt) sequenceAttempt.current = null;
                     }
-                    if (sequenceAttempt.current === attempt) sequenceAttempt.current = null;
                 } catch (error) {
                     Modal.alert(t('common.error'), error instanceof Error ? error.message : t('errors.failedToSendMessage'));
                 } finally {
@@ -6601,7 +6637,7 @@ function SessionViewLoaded({
                 armedContinuationTarget={armedContinuationTarget}
                 queueHandoffAfterTurnId={queueHandoffAfterTurnId}
                 agentReview={agentReviewComposer}
-                agentSequence={pendingMessageEdit || recipientState.recipient ? undefined : sequenceContext}
+                agentSequence={canSubmitSequence ? sequenceContext : undefined}
                 composeAgentPickerOptions={inSessionAgentPicker.composeAgentPickerOptions}
                 onAgentPickerIntent={inSessionAgentPicker.onAgentPickerIntent}
                 onAgentPickerVisibilityChange={inSessionAgentPicker.onAgentPickerVisibilityChange}

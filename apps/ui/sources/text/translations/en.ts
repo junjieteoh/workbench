@@ -6639,8 +6639,11 @@ export const en = {
 
     agentInput: {
         sequence: {
-            planOnly: "Plan only",
-            takesOver: "Takes over",
+            handOff: "Hand off",
+            takeOverTask: "Take over from the previous turn.",
+            turn: ({ index }: { index: number }) => `Turn ${index}`,
+            addTurn: "Add turn",
+            incomplete: "Choose an agent and add instructions for each turn.",
             loading: "Loading agents…",
             unknown: "Choose an agent for each step.",
             unavailable: "These agents are unavailable for a handoff.",

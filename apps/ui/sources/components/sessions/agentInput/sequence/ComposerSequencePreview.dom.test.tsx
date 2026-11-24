@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ComposerSequencePreview, type ComposerSequenceOption } from './ComposerSequencePreview';
+import { ComposerSequencePreview } from './ComposerSequencePreview';
 
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
 vi.mock('react-native-unistyles', async () => (await import('@/dev/testkit/mocks/unistyles')).createUnistylesMock());
@@ -15,8 +15,8 @@ vi.mock('@/modal', async () => (await import('@/dev/testkit/mocks/modal')).creat
 
 const plans = [{ key: 'oak', label: 'Oak' }, { key: 'birch', label: 'Birch' }];
 const builds = [{ key: 'moss', label: 'Moss' }, { key: 'elm', label: 'Elm' }];
-const roles = [plans, builds] as const;
-const noOptions: readonly ComposerSequenceOption[] = [];
+const options = [...plans, ...builds];
+
 
 function Composer({ disabled = false, status }: { disabled?: boolean; status?: string }) {
     const [selected, setSelected] = React.useState([plans[0], builds[0]]);
@@ -25,10 +25,11 @@ function Composer({ disabled = false, status }: { disabled?: boolean; status?: s
             { agentKey: selected[0].key, agentLabel: selected[0].label, task: 'Draft an agenda' },
             { agentKey: selected[1].key, agentLabel: selected[1].label, task: 'Review the agenda' },
         ]}
-        options={noOptions}
-        optionsByStep={roles}
+        options={options}
+        onTaskChange={() => {}}
+        onOrderChange={() => {}}
         onAgentChange={(step, key) => setSelected(current => current.map((previous, index) =>
-            index === step ? roles[step].find(option => option.key === key)! : previous))}
+            index === step ? options.find(option => option.key === key)! : previous))}
         status={status}
         disabled={disabled}
     />;
@@ -68,20 +69,19 @@ describe('ComposerSequencePreview', () => {
         vi.restoreAllMocks();
     });
 
-    it('allows changing either agent without changing the tasks or offering targets from the other step', async () => {
+    it('allows changing either agent while keeping both tasks and the full catalog', async () => {
         await act(async () => root.render(<Composer />));
-        expect(container.textContent).toContain('Draft an agenda');
+        expect((lookup('composer-sequence-task-0') as HTMLTextAreaElement).value).toBe('Draft an agenda');
         await click('composer-sequence-agent-0');
-        expect(lookup('composer-sequence-option-elm')).toBeNull();
+        await visible('composer-sequence-option-elm');
         await click('composer-sequence-option-birch');
         await vi.waitFor(() => expect(lookup('composer-sequence-agent-0')?.textContent).toContain('Birch'));
         await click('composer-sequence-agent-1');
         await visible('composer-sequence-option-elm');
-        await key('ArrowDown');
-        await key('Enter');
+        await click('composer-sequence-option-elm');
         await vi.waitFor(() => expect(lookup('composer-sequence-agent-1')?.textContent).toContain('Elm'));
-        expect(container.textContent).toContain('Draft an agenda');
-        expect(container.textContent).toContain('Review the agenda');
+        expect((lookup('composer-sequence-task-0') as HTMLTextAreaElement).value).toBe('Draft an agenda');
+        expect((lookup('composer-sequence-task-1') as HTMLTextAreaElement).value).toBe('Review the agenda');
         await click('composer-sequence-agent-1');
         await visible('composer-sequence-option-elm');
         await key('Escape');
@@ -95,7 +95,7 @@ describe('ComposerSequencePreview', () => {
         await act(async () => root.render(<Composer disabled status="Checking agents" />));
         expect(lookup('composer-sequence-option-moss')).toBeNull();
         expect(container.textContent).toContain('Checking agents');
-        expect(container.textContent).toContain('Review the agenda');
+        expect((lookup('composer-sequence-task-1') as HTMLTextAreaElement).value).toBe('Review the agenda');
         expect(lookup('composer-sequence-agent-1')?.getAttribute('aria-disabled')).toBe('true');
     });
 });

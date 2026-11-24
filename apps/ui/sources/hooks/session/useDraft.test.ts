@@ -286,6 +286,7 @@ type HarnessState = Readonly<{
   restoreComposerSnapshot?: (snapshot: Readonly<{ sessionId: string; text: string }>) => void;
   captureDraftForOutboundHandoff?: () => SessionDraftTextSnapshot | null;
   clearDraftCurrentness?: (snapshot: SessionDraftTextSnapshot) => boolean;
+  clearSubmittedDraftAfterFlush: (snapshot: SessionDraftTextSnapshot) => Promise<boolean>;
   rerender: () => void;
 }>;
 
@@ -338,6 +339,7 @@ async function renderHarness(params: { initialSessionId: string; active?: boolea
         : undefined,
       captureDraftForOutboundHandoff: draftApi.captureDraftForOutboundHandoff,
       clearDraftCurrentness: draftApi.clearDraftCurrentness,
+      clearSubmittedDraftAfterFlush: draftApi.clearSubmittedDraftAfterFlush,
       rerender: () => setTick((tick) => tick + 1),
     };
     return null;
@@ -1290,6 +1292,24 @@ describe('useDraft', () => {
     expect(snapshot?.text).toBe('submitted prompt');
     expect(sessionsById.s1?.draft).toBe('submitted prompt');
     expect(harness.getCurrent().value).toBe('submitted prompt');
+    harness.unmount();
+  });
+
+  it('keeps the submitted composer text visible until the clear is durably flushed', async () => {
+    sessionsById = { s1: { draft: 'submitted sequence', metadata: {} } };
+    const harness = await renderHarness({ initialSessionId: 's1' });
+    const snapshot = harness.getCurrent().captureDraftForOutboundHandoff?.();
+    let finishFlush!: (result: { status: 'clean' }) => void;
+    draftRepositoryHarness.flush.mockReturnValueOnce(new Promise(resolve => { finishFlush = resolve; }));
+    let clearance!: Promise<boolean>;
+    await act(async () => {
+      clearance = harness.getCurrent().clearSubmittedDraftAfterFlush(snapshot!);
+    });
+    expect(draftRepositoryHarness.flush).toHaveBeenCalled();
+    expect(harness.getCurrent().value).toBe('submitted sequence');
+    await act(async () => { finishFlush({ status: 'clean' }); });
+    await expect(clearance).resolves.toBe(true);
+    expect(harness.getCurrent().value).toBe('');
     harness.unmount();
   });
 

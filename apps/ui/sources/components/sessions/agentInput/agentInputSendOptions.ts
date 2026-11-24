@@ -5,7 +5,7 @@ import { t } from '@/text';
 
 export type AgentInputSendOptions = Readonly<{
     agentReviewSelection?: ComposerAgentReviewSelection;
-    agentSequence?: Readonly<{ planner: ComposerAgentReviewSelection; successor: ComposerAgentReviewSelection }>;
+    agentSequence?: readonly ComposerAgentReviewSelection[];
     forceImmediate?: boolean;
     queueHandoffAfterTurnId?: string;
     sendNextQueued?: boolean;

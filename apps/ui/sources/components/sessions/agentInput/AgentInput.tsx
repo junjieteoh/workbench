@@ -50,7 +50,7 @@ import { ComposerHistorySwipeArea, type ComposerHistoryDirection } from './Compo
 import { AgentInputKeepKeyboardToggle } from './components/AgentInputKeepKeyboardToggle';
 import { ComposerSequencePreview } from './sequence/ComposerSequencePreview';
 import { useComposerAgentSequence } from './sequence/useComposerAgentSequence';
-import { parseComposerAgentSequence } from './sequence/composerAgentSequence';
+import { parseComposerAgentSequence, stageComposerHandoff } from './sequence/composerAgentSequence';
 import type { ComposerAgentReviewTarget } from './agentReviewComposer';
 import { applyAgentReviewChoice, findAgentReviewToken, removeAgentReviewToken, type AgentReviewComposerBinding } from './agentReviewComposer';
 import { buildAgentInputSendMenuItems } from './agentInputSendOptions';
@@ -340,6 +340,7 @@ interface AgentInputProps {
     /** Eligible suggestion kinds for this composer host. Trigger characters follow from the kinds (INV-1). */
     agentReview?: AgentReviewComposerBinding;
     agentSequence?: Readonly<{
+        resolveModels?: AgentReviewComposerBinding['resolveModels'];
         currentTargetKey: string;
         successorTargets: readonly ComposerAgentReviewTarget[];
         scopeKey?: string;
@@ -1414,6 +1415,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const sequence = useComposerAgentSequence({
         text: props.agentSequence ? props.value : '',
         binding: props.agentReview,
+        resolveModels: props.agentSequence?.resolveModels,
         successorTargets: props.agentSequence?.successorTargets,
         currentTargetKey: props.agentSequence?.currentTargetKey,
         currentModelId: props.modelMode,
@@ -1693,9 +1695,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             text: liveInputText,
         });
         const hasStructuredInputMeta = Object.keys(structuredInputMetaOverrides).length > 0;
-        if (props.agentSequence && parseComposerAgentSequence(liveInputText)) {
+        if (props.agentSequence && (hasSequence || parseComposerAgentSequence(liveInputText))) {
             // A flush may produce a newer draft than the last visible preview. Never run
-            // a sequence until its exact two actors and assignments were shown.
+            // a sequence until its exact order, agents and assignments were shown.
             if (liveInputText === props.value && sequence.ready) {
                 props.onSend({
                     inputTextOverride: liveInputText,
@@ -1724,6 +1726,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }, [
         keepFocusAfterSend,
         props.agentSequence,
+        hasSequence,
         sequence.ready,
         props.agentReview,
         messageHistory,
@@ -1873,6 +1876,16 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             const bound = props.agentReview;
             if (!bound || action.kind === 'status' || !activeWordForSelection
                 || activeWordForSelection.activeWord.slice(1) !== suggestion.agentReviewQuery) return;
+            if (action.kind === 'handoff') {
+                const handoff = bound.handoff;
+                if (!handoff) return;
+                const next = stageComposerHandoff(currentInputState.text, activeWordForSelection, handoff.first, action.target);
+                if (bound.selection) bound.onSelectionChange(null);
+                applyResolvedSelection({ text: next, cursorPosition: next.length });
+                handoff.onStage();
+                hapticsLight();
+                return;
+            }
             applyResolvedSelection(applyAgentReviewChoice({
                 text: currentInputState.text, selection: currentInputState.selection,
                 token: suggestion.text, kinds: props.autocompleteKinds,
@@ -3331,6 +3344,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     );
 
     const queueHandoffAfterTurnId = props.queueHandoffAfterTurnId;
+    const applySequenceEdit = (next: string | null, clearReview = false) => {
+        const live = inputRef.current?.getText?.() ?? inputStateRef.current.text;
+        if (live !== props.value || next === null) return;
+        if (clearReview && props.agentReview?.selection) props.agentReview.onSelectionChange(null);
+        if (next === live) return;
+        inputRef.current?.setTextAndSelection(next, { start: next.length, end: next.length });
+    };
     const renderActionFooterSection = () => (
         <View
             style={styles.nativeKeyboardFooterSection}
@@ -3341,23 +3361,16 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             {sequence.steps ? (
                 <ComposerSequencePreview
                     steps={sequence.steps}
-                    options={[]}
-                    optionsByStep={sequence.optionsByStep}
+                    options={sequence.options}
                     status={sequence.status === 'loading' ? t('agentInput.sequence.loading')
                         : sequence.status === 'unavailable' ? t('agentInput.sequence.unavailable')
+                        : sequence.status === 'incomplete' ? t('agentInput.sequence.incomplete')
                         : sequence.status === 'unknown' || sequence.status === 'ambiguous' ? t('agentInput.sequence.unknown')
                         : undefined}
                     disabled={Boolean(props.disabled || props.isSending)}
-                    onAgentChange={(index, key) => {
-                        const live = inputRef.current?.getText?.() ?? inputStateRef.current.text;
-                        if (live !== props.value) return;
-                        const next = sequence.replace(index, key);
-                        if (!next) return;
-                        if (index === 0 && props.agentReview?.selection) props.agentReview.onSelectionChange(null);
-                        if (next === live) return;
-                        const caret = { start: next.length, end: next.length };
-                        inputRef.current?.setTextAndSelection(next, caret);
-                    }}
+                    onAgentChange={(index, key) => applySequenceEdit(sequence.replace(index, key), index === 0)}
+                    onTaskChange={(index, task) => applySequenceEdit(sequence.edit(index, task))}
+                    onOrderChange={change => applySequenceEdit(sequence.reorder(change), true)}
                 />
             ) : null}
             {!hasSequence && props.agentReview?.selection ? (

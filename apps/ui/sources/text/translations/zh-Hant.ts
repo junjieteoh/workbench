@@ -5925,8 +5925,11 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
 
     agentInput: {
         sequence: {
-            planOnly: "僅規劃",
-            takesOver: "接手工作",
+            handOff: "交接",
+            takeOverTask: "接手上一輪的工作。",
+            turn: ({ index }: { index: number }) => `回合 ${index}`,
+            addTurn: "新增回合",
+            incomplete: "請為每個回合選擇代理並新增指示。",
             loading: "正在載入代理程式…",
             unknown: "請為每個步驟選擇一個代理程式。",
             unavailable: "這些代理程式目前無法交接任務。",

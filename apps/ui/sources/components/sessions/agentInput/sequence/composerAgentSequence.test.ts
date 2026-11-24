@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComposerAgentReviewTarget } from '../agentReviewComposer';
 import {
     formatComposerSequenceAddress, listComposerSequenceChoices, parseComposerAgentSequence,
-    replaceComposerSequenceAddress, resolveComposerSequenceAddress, type ComposerSequenceCatalogEntry,
+    replaceComposerSequenceAddress, replaceComposerSequenceInstructions, reorderComposerSequence, resolveComposerSequenceAddress, type ComposerSequenceCatalogEntry,
 } from './composerAgentSequence';
 
 const target = (id: 'claude' | 'gemini', label: string): ComposerAgentReviewTarget => ({
@@ -34,8 +34,37 @@ describe('a two-stage composer handoff', () => {
     });
 
     it.each(['review @claude then @gemini', '@claude review the draft', '@claude review @gemini', '@claude review\nthis then clarify',
-        '@claude quote `then @gemini` verbatim', '@claude a then @gemini b then @codex c'])('leaves ordinary input or unsupported nesting untouched: %s', text => {
+        '@claude quote `then @gemini` verbatim'])('leaves ordinary input or unsupported nesting untouched: %s', text => {
         expect(parseComposerAgentSequence(text)).toBeNull();
+    });
+
+    it('parses repeated agents, a return handoff and incomplete addressed turns in order', () => {
+        const text = '@claude draft this, then @gemini review it, then back to @claude to revise';
+        const result = parseComposerAgentSequence(text)!;
+        expect(result.stages.map(stage => [stage.address, stage.instructions])).toEqual([
+            ['claude', 'draft this'], ['gemini', 'review it'], ['claude', 'revise'],
+        ]);
+        for (const tail of [', then @', ', then', ' → ']) {
+            const incomplete = parseComposerAgentSequence(text + tail)!.stages[3];
+            expect(incomplete).toMatchObject({ address: '', instructions: '' });
+            const choice = listComposerSequenceChoices(catalog)[0];
+            const fixed = replaceComposerSequenceAddress(text + tail, incomplete, choice);
+            expect(parseComposerAgentSequence(fixed)?.stages[3].address).toBe('claude');
+        }
+        const changed = replaceComposerSequenceInstructions(text, result.stages[1], 'Quote "then @gemini" literally, then @data for the example. ');
+        expect(parseComposerAgentSequence(changed)?.stages.map(stage => stage.instructions)).toEqual([
+            'draft this', 'Quote "then @gemini" literally, then @data for the example. ', 'revise',
+        ]);
+    });
+
+    it('adds an incomplete turn and moves or removes entire assignments without losing their model and instructions', () => {
+        const text = '@opus draft, then @gemini review, then back to @claude to revise';
+        const move = reorderComposerSequence(text, parseComposerAgentSequence(text)!, { kind: 'up', index: 2 });
+        expect(move).toBe('@opus draft, then @claude revise, then @gemini review');
+        const remove = reorderComposerSequence(move, parseComposerAgentSequence(move)!, { kind: 'remove', index: 0 });
+        expect(remove).toBe('@claude revise, then @gemini review');
+        expect(reorderComposerSequence(remove, parseComposerAgentSequence(remove)!, { kind: 'add' })).toBe(remove + ', then @');
+        expect(reorderComposerSequence(remove, parseComposerAgentSequence(remove)!, { kind: 'remove', index: 0 })).toBe(remove);
     });
 
     it('resolves whole model-name and id components and exact agent names from the supplied catalog', () => {

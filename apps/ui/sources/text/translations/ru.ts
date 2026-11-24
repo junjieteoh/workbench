@@ -6982,8 +6982,11 @@ export const ru: TranslationStructure = {
 
     agentInput: {
         sequence: {
-            planOnly: "Только план",
-            takesOver: "Принимает задачу",
+            handOff: "Передать",
+            takeOverTask: "Продолжи работу с предыдущего хода.",
+            turn: ({ index }: { index: number }) => `Ход ${index}`,
+            addTurn: "Добавить ход",
+            incomplete: "Выберите агента и укажите инструкции для каждого хода.",
             loading: "Загрузка агентов…",
             unknown: "Выберите агента для каждого шага.",
             unavailable: "Эти агенты не могут передать задачу друг другу.",

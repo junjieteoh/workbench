@@ -7261,8 +7261,11 @@ localTailscale: {
 
   agentInput: {
       sequence: {
-          planOnly: "計画のみ",
-          takesOver: "引き継ぎ",
+          handOff: "引き継ぐ",
+          takeOverTask: "前のターンの作業を引き継いでください。",
+          turn: ({ index }: { index: number }) => `ターン ${index}`,
+          addTurn: "ターンを追加",
+          incomplete: "各ターンにエージェントと指示を指定してください。",
           loading: "エージェントを読み込み中…",
           unknown: "各ステップのエージェントを選択してください。",
           unavailable: "これらのエージェント間では引き継ぎできません。",

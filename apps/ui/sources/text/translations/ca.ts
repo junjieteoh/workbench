@@ -6608,8 +6608,11 @@ deps: {
 
     agentInput: {
         sequence: {
-            planOnly: "Només planifica",
-            takesOver: "Pren el relleu",
+            handOff: "Traspassa",
+            takeOverTask: "Pren el relleu del torn anterior.",
+            turn: ({ index }: { index: number }) => `Torn ${index}`,
+            addTurn: "Afegeix un torn",
+            incomplete: "Tria un agent i afegeix instruccions per a cada torn.",
             loading: "S’estan carregant els agents…",
             unknown: "Tria un agent per a cada pas.",
             unavailable: "Aquests agents no estan disponibles per al traspàs.",
