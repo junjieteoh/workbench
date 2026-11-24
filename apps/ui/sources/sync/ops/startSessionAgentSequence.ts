@@ -31,7 +31,10 @@ export async function startSessionAgentSequence(params: StartSessionAgentSequenc
             requests: [{ id: 'tool.sessionAgentTransition' }],
         }, { serverId: params.serverId });
         const result = capability.supported ? capability.response.results['tool.sessionAgentTransition'] : null;
-        if (!result?.ok || !z.object({ supportsAgentTurnSequence: z.literal(true) }).safeParse(result.data).success) {
+        if (!result?.ok || !z.object({
+            supportsAgentTurnSequence: z.literal(true),
+            ...(params.steps.length === 1 ? { supportsAgentSingleTurnSequence: z.literal(true) } : {}),
+        }).safeParse(result.data).success) {
             return { ok: false, error: unavailable };
         }
     } catch {

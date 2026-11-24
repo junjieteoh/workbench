@@ -7005,6 +7005,7 @@ export const ru: TranslationStructure = {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Выбрано.`,
         },
         agentReview: {
+            reply: "Ответить в этом чате",
             cachedModels: "Сохранённый список моделей · обновление недоступно",
             catalogModels: "Каталог провайдера · поиск в реальном времени недоступен",
             group: "Агенты",

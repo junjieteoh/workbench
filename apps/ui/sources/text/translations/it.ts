@@ -7354,6 +7354,7 @@ export const it: TranslationStructure = {
           selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Selezionato.`,
       },
     agentReview: {
+        reply: "Rispondi in questa chat",
         cachedModels: "Elenco salvato · aggiornamento non disponibile",
         catalogModels: "Catalogo del fornitore · ricerca in tempo reale non disponibile",
         group: "Agenti",

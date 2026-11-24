@@ -5,6 +5,7 @@ import { getAgentCore } from '@/agents/catalog/catalog';
 import { getMachineCapabilitiesCacheState, prefetchMachineCapabilitiesIfStale } from '@/hooks/server/useMachineCapabilitiesCache';
 import { extractExecutionRunsBackendsFromMachineCapabilitiesState } from '@/sync/domains/executionRuns/extractExecutionRunsBackendsFromMachineCapabilities';
 import { resolveExecutionRunAvailableBackends } from '@/sync/domains/executionRuns/resolveExecutionRunAvailableBackends';
+import { readDynamicModelProbeCache, subscribeDynamicModelProbeCache, type DynamicModelProbeCacheEntry } from '@/sync/domains/models/dynamicModelProbeCache';
 import { buildDynamicModelProbeCacheKey } from '@/sync/domains/models/dynamicModelProbeCacheKey';
 import { getModelOptionsForAgentType, getModelOptionsForModes, getModelOptionsForPreflightModelList } from '@/sync/domains/models/modelOptions';
 import type { Settings } from '@/sync/domains/settings/settings';
@@ -15,6 +16,20 @@ import { buildBackendTargetKey } from '@happier-dev/protocol';
 
 import { buildSessionConnectedServicesBindings, readConnectedServicesBindingsFromMetadata } from './hooks/useSessionConnectedServicesAuthSwitch';
 import type { AgentReviewComposerBinding, ComposerAgentReviewModel, ComposerAgentReviewSelection, ComposerAgentReviewTarget } from './agentReviewComposer';
+
+function modelChoices(target: ComposerAgentReviewTarget, entry?: DynamicModelProbeCacheEntry): readonly ComposerAgentReviewModel[] {
+    const core = getAgentCore(target.agentId);
+    const options = entry?.kind === 'success' ? getModelOptionsForPreflightModelList(entry.value)
+        : core.model.supportsSelection ? getModelOptionsForAgentType(target.agentId) : getModelOptionsForModes(['default']);
+    const source = entry?.kind === 'success'
+        ? entry.staticFallback ? 'catalog' : entry.errorUpdatedAt !== undefined ? 'cached' : undefined
+        : 'catalog';
+    return options.filter(option => option.value !== 'custom').map(option => ({
+        id: option.value === 'default' ? null : option.value,
+        label: option.label,
+        ...(source && option.value !== 'default' ? { source } : {}),
+    }));
+}
 
 export function useSessionAgentReviewComposer(params: Readonly<{
     enabled: boolean;
@@ -48,35 +63,46 @@ export function useSessionAgentReviewComposer(params: Readonly<{
         if (!targets) throw new Error('Review capabilities unavailable');
         return targets;
     }, [machineId, serverId, peekTargets]);
+    const modelRequest = React.useCallback((target: ComposerAgentReviewTarget) => {
+        const core = getAgentCore(target.agentId);
+        if (!machineId || !core.model.supportsSelection || core.model.dynamicProbe === 'static-only') return null;
+        const probe = resolveNewSessionCapabilityProbeContext({ backendTarget: target.backendTarget, settings, sessionMetadata: metadata });
+        const connectedServices = buildSessionConnectedServicesBindings({
+            supportedServiceIds: core.connectedServices?.supportedServiceIds ?? [],
+            bindingsByServiceId: readConnectedServicesBindingsFromMetadata(metadata, target.agentId),
+        });
+        const cacheKey = buildDynamicModelProbeCacheKey({
+            machineId, serverId: serverId ?? null, targetKey: buildBackendTargetKey(target.backendTarget), cwd, connectedServices,
+            extraKeySuffixParts: [...(probe?.cacheKeySuffixParts ?? []), ...(profileId ? ['profile:' + profileId] : [])],
+        });
+        if (!cacheKey) return null;
+        return {
+            cacheKey, machineId, serverId: serverId ?? '', backendTarget: target.backendTarget, agentType: target.agentId,
+            capabilityParams: { timeoutMs: NEW_SESSION_CAPABILITY_PROBE_TIMEOUT_MS, ...(profileId ? { profileId } : {}),
+                ...probe?.capabilityParams, connectedServices, ...(cwd ? { cwd } : {}) },
+        };
+    }, [machineId, serverId, cwd, profileId, metadata, settings]);
+    const peekModels = React.useCallback((target: ComposerAgentReviewTarget) => {
+        const request = modelRequest(target);
+        if (!request) return modelChoices(target);
+        const entry = readDynamicModelProbeCache(request.cacheKey);
+        return entry?.kind === 'success' ? modelChoices(target, entry) : null;
+    }, [modelRequest]);
+    const subscribeModels = React.useCallback<NonNullable<AgentReviewComposerBinding['subscribeModels']>>((targets, onChange) => {
+        const subscriptions = targets.flatMap(target => {
+            const request = modelRequest(target);
+            return request ? [subscribeDynamicModelProbeCache(request.cacheKey, onChange)] : [];
+        });
+        return () => subscriptions.forEach(unsubscribe => unsubscribe());
+    }, [modelRequest]);
     const resolveModels = React.useCallback(async (target: ComposerAgentReviewTarget, signal?: AbortSignal) => {
         if (!machineId || signal?.aborted) return [];
-        const core = getAgentCore(target.agentId);
-        let source: ComposerAgentReviewModel['source'];
-        let options = core.model.supportsSelection ? getModelOptionsForAgentType(target.agentId) : getModelOptionsForModes(['default']);
-        if (core.model.supportsSelection && core.model.dynamicProbe !== 'static-only') {
-            const probe = resolveNewSessionCapabilityProbeContext({ backendTarget: target.backendTarget, settings, sessionMetadata: metadata });
-            const connectedServices = buildSessionConnectedServicesBindings({
-                supportedServiceIds: core.connectedServices?.supportedServiceIds ?? [],
-                bindingsByServiceId: readConnectedServicesBindingsFromMetadata(metadata, target.agentId),
-            });
-            const cacheKey = buildDynamicModelProbeCacheKey({
-                machineId, serverId: serverId ?? null, targetKey: buildBackendTargetKey(target.backendTarget), cwd, connectedServices,
-                extraKeySuffixParts: [...(probe?.cacheKeySuffixParts ?? []), ...(profileId ? ['profile:' + profileId] : [])],
-            });
-            if (!cacheKey) throw new Error('Review model scope unavailable');
-            const entry = await discoverMachineModels({
-                cacheKey, machineId, serverId: serverId ?? '', backendTarget: target.backendTarget, agentType: target.agentId,
-                capabilityParams: { timeoutMs: NEW_SESSION_CAPABILITY_PROBE_TIMEOUT_MS, ...(profileId ? { profileId } : {}),
-                    ...probe?.capabilityParams, connectedServices, ...(cwd ? { cwd } : {}) },
-            });
-            if (entry?.kind !== 'success') throw new Error('Review model discovery unavailable');
-            // The native picker retains the last observed list, then the provider's
-            // catalog when live discovery fails. Keep that choice explicit in each row.
-            source = entry.staticFallback ? 'catalog' : entry.errorUpdatedAt !== undefined ? 'cached' : undefined;
-            options = getModelOptionsForPreflightModelList(entry.value);
-        }
-        return options.filter(option => option.value !== 'custom').map(option => ({ id: option.value === 'default' ? null : option.value, label: option.label, ...(source ? { source } : {}) }));
-    }, [machineId, serverId, cwd, profileId, metadata, settings]);
-    return React.useMemo(() => params.enabled && machineId ? { matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, selection, onSelectionChange } : undefined,
-        [params.enabled, machineId, matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, selection, onSelectionChange]);
+        const request = modelRequest(target);
+        if (!request) return modelChoices(target);
+        const entry = await discoverMachineModels(request);
+        if (entry?.kind !== 'success') throw new Error('Review model discovery unavailable');
+        return modelChoices(target, entry);
+    }, [machineId, modelRequest]);
+    return React.useMemo(() => params.enabled && machineId ? { matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, peekModels, subscribeModels, selection, onSelectionChange } : undefined,
+        [params.enabled, machineId, matchesTargetPrefix, peekTargets, resolveTargets, resolveModels, peekModels, subscribeModels, selection, onSelectionChange]);
 }

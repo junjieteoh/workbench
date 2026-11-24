@@ -6631,6 +6631,7 @@ deps: {
             selectedOptionAccessibilityLabel: ({ option }: { option: string }) => `${option}. Seleccionat.`,
         },
         agentReview: {
+            reply: "Respon en aquest xat",
             cachedModels: "Llista desada · actualització no disponible",
             catalogModels: "Catàleg del proveïdor · consulta en directe no disponible",
             group: "Agents",

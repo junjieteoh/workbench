@@ -164,6 +164,7 @@ export function useNewSessionWizardProps(params: Readonly<{
     canCreate: boolean;
     isCreating: boolean;
     submitAccessibilityLabel?: NewSessionWizardFooterProps['submitAccessibilityLabel'];
+    agentReview?: NewSessionWizardFooterProps['agentReview'];
     agentSequence?: NewSessionWizardFooterProps['agentSequence'];
     emptyAutocompleteKinds: readonly ComposerSuggestionKindId[];
     emptyAutocompleteSuggestions: ActiveSuggestionsHandler;
@@ -481,6 +482,7 @@ export function useNewSessionWizardProps(params: Readonly<{
             canCreate: params.canCreate,
             isCreating: params.isCreating,
             submitAccessibilityLabel: params.submitAccessibilityLabel,
+            agentReview: params.agentReview,
             agentSequence: params.agentSequence,
             emptyAutocompleteKinds: params.emptyAutocompleteKinds,
             emptyAutocompleteSuggestions: params.emptyAutocompleteSuggestions,
@@ -506,6 +508,7 @@ export function useNewSessionWizardProps(params: Readonly<{
         params.resumePersistedLaunchKey,
         params.canCreate,
         params.connectionStatus,
+        params.agentReview,
         params.agentSequence,
         params.emptyAutocompleteKinds,
         params.emptyAutocompleteSuggestions,

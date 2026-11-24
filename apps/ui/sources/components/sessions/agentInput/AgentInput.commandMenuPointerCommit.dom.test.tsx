@@ -262,9 +262,10 @@ async function typeIntoComposer(composer: MountedComposer, text: string) {
 
 function findMenuRow(optionId: string): HTMLElement | null {
     // The popover portals out of the render container, so search the document.
-    return document.querySelector<HTMLElement>(
-        `[data-testid="agent-input-command-menu:list:command-menu-root:option:${optionId}"]`,
-    );
+    // Encoded model IDs may contain percent escapes; compare the literal native test ID.
+    const id = 'agent-input-command-menu:list:command-menu-root:option:' + optionId;
+    return [...document.querySelectorAll<HTMLElement>('[data-testid*="command-menu-root:option:"]')]
+        .find(node => node.getAttribute('data-testid') === id) ?? null;
 }
 
 type PressOutcome = Readonly<{
@@ -304,6 +305,30 @@ async function pressRow(composer: MountedComposer, optionId: string): Promise<Pr
 }
 
 describe('AgentInput — a pointer press on a suggestion rewrites the composer', () => {
+    it('selects a real foreground model as the next speaker while a different provider is still discovering', async () => {
+        const cursor = { agentId: 'cursor', label: 'Cursor', backendTarget: { kind: 'builtInAgent', agentId: 'cursor' } } as const;
+        const second = { agentId: 'claude', label: 'Claude', backendTarget: { kind: 'builtInAgent', agentId: 'claude' } } as const;
+        const models = [{ id: 'vendor/grok-4.7', label: 'Grok 4.7' }];
+        let cached = false;
+        let onDiscovery: (() => void) | undefined;
+        const slow = new Promise<never>(() => {});
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({
+            replyTargets: [cursor, second], reviewEnabled: false, matchesTargetPrefix: () => false,
+            resolveTargets: async () => [], resolveModels: () => slow,
+            peekModels: target => cached && target === cursor ? models : null,
+            subscribeModels: (_targets, onChange) => { onDiscovery = onChange; return () => {}; },
+        }, onSend);
+        await typeIntoComposer(composer, 'Summarize this @grok');
+        await vi.waitFor(() => expect(onDiscovery).toBeTypeOf('function'));
+        await act(async () => { cached = true; onDiscovery!(); });
+        const row = 'agentReview:reply:@cursor/vendor%2Fgrok-4.7';
+        await vi.waitFor(() => expect(findMenuRow(row)?.textContent).toContain('Grok 4.7'));
+        await pressRow(composer, row);
+        expect(composer.text()).toBe('@reply:cursor/vendor%2Fgrok-4.7 Summarize this');
+        expect(onSend).not.toHaveBeenCalled();
+    });
+
     it('previews a typed planner and successor before Enter dispatches both assignments', async () => {
         const claude = { agentId: 'claude', label: 'Claude', backendTarget: { kind: 'builtInAgent', agentId: 'claude' } } as const;
         const gemini = { agentId: 'gemini', label: 'Gemini', backendTarget: { kind: 'builtInAgent', agentId: 'gemini' } } as const;
@@ -366,6 +391,47 @@ describe('AgentInput — a pointer press on a suggestion rewrites the composer',
         await act(async () => { composer.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
         expect(onSend).toHaveBeenCalledWith(expect.objectContaining({
             agentSequence: [expect.objectContaining({ target: claude, modelId: 'model-a' }), expect.objectContaining({ target: gemini })],
+        }));
+    });
+
+    it('sends a selected model as one foreground reply and expands a pass-to in the reply editor', async () => {
+        const cursor = { agentId: 'cursor', label: 'Cursor', backendTarget: { kind: 'builtInAgent', agentId: 'cursor' } } as const;
+        const codex = { agentId: 'codex', label: 'Codex', backendTarget: { kind: 'builtInAgent', agentId: 'codex' } } as const;
+        const grok = { id: 'vendor/grok-special', label: 'Grok Special' };
+        const onSend = vi.fn();
+        const composer = await renderSessionComposer({
+            replyTargets: [cursor, codex], reviewEnabled: false,
+            matchesTargetPrefix: () => false, resolveTargets: async () => [],
+            resolveModels: async target => target.agentId === 'cursor' ? [grok] : [],
+            peekModels: target => target.agentId === 'cursor' ? [grok] : [],
+        }, onSend, { currentTargetKey: 'agent:codex', successorTargets: [cursor, codex] });
+        const pickModel = async () => {
+            await typeIntoComposer(composer, '@grok');
+            const id = 'agentReview:reply:@cursor/vendor%2Fgrok-special';
+            await vi.waitFor(() => expect(findMenuRow(id)).not.toBeNull());
+            await pressRow(composer, id);
+        };
+        const task = async (index: number) => await vi.waitFor(() => {
+            const textarea = document.querySelector<HTMLTextAreaElement>(`[data-testid="composer-sequence-task-${index}"]`);
+            expect(textarea).not.toBeNull();
+            return textarea!;
+        });
+        await pickModel();
+        const replyField = await task(0);
+        expect(replyField.value).toBe('');
+        expect(document.querySelector('[data-testid="sequence-preview"]')?.textContent).toContain('Grok Special');
+        await typeIntoComposer({ textarea: replyField, text: () => replyField.value }, 'Write a math problem');
+        await act(async () => { document.querySelector<HTMLElement>('[data-testid="session-composer-send"]')?.click(); });
+        expect(onSend).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            agentSequence: [expect.objectContaining({ target: cursor, modelId: grok.id })],
+        }));
+        await typeIntoComposer({ textarea: replyField, text: () => replyField.value }, 'Write a math problem and pass to @codex to solve it');
+        expect((await task(1)).value).toBe('solve it');
+        expect((await task(0)).value).toBe('Write a math problem');
+        expect(onSend).toHaveBeenCalledTimes(1);
+        await act(async () => { document.querySelector<HTMLElement>('[data-testid="session-composer-send"]')?.click(); });
+        expect(onSend).toHaveBeenLastCalledWith(expect.objectContaining({
+            agentSequence: [expect.objectContaining({ target: cursor, modelId: grok.id }), expect.objectContaining({ target: codex })],
         }));
     });
 

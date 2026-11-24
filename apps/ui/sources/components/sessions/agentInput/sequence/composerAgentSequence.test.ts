@@ -36,6 +36,22 @@ describe('a two-stage composer handoff', () => {
             expect(stages?.[1].address).toBe('codex');
         });
 
+    it('reads a selected one-turn reply without turning ordinary front-of-message mentions into routing', () => {
+        expect(parseComposerAgentSequence('@reply:cursor/grok-4.7 Write a math problem')?.stages).toMatchObject([
+            { address: 'cursor/grok-4.7', instructions: 'Write a math problem' },
+        ]);
+        expect(parseComposerAgentSequence('@README.md summarize this')).toBeNull();
+        expect(parseComposerAgentSequence('@grok Write a math problem')).toBeNull();
+    });
+
+    it('keeps an explicitly selected first model when a second turn is added conversationally', () => {
+        expect(parseComposerAgentSequence('@reply:cursor/grok-4.7 Write a question, then pass to @codex to solve it')?.stages)
+            .toMatchObject([
+                { address: 'cursor/grok-4.7', instructions: 'Write a question' },
+                { address: 'codex', instructions: 'solve it' },
+            ]);
+    });
+
     it('preserves an explicit model and strips the connective from the successor assignment', () => {
         const text = '@codex/example-model Do X, then pass to @claude to review, then back to @codex to revise';
         const parsed = parseComposerAgentSequence(text)!;

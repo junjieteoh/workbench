@@ -8,6 +8,7 @@ export type ComposerSequenceStage = Readonly<{
     address: string;
     /** The first assignment uses the agent currently selected in the foreground composer. */
     implied?: true;
+    addressed?: true;
     /** The successor was explicitly introduced by “pass to” or “hand off to”. */
     handoff?: true;
     start: number;
@@ -23,6 +24,8 @@ export type ComposerSequenceAddressResolution =
     | { kind: 'ambiguous'; choices: readonly ComposerAgentReviewSelection[] }
     | { kind: 'unknown' };
 
+const REPLY_ADDRESS_PREFIX = 'reply:';
+
 /** Ignore instructions quoting a handoff, including Markdown code and JSON strings. */
 const markerPattern = /(?<ticks>\x60+)|"(?:\\[\s\S]|""|[^"\\])*"|(?<divider>\b(?:(?:(?:and\s+)?then\b,?\s+|and\s+)?(?<handoff>(?:pass|hand\s+(?:off|over))(?:\s+it)?\s+to)\b|(?:and\s+)?then\b,?(?:\s+(?<back>back\s+to)\b)?)(?=\s|$)|→|->|=>)\s*(?=@|$)/giu;
 
@@ -33,7 +36,9 @@ function readStage(text: string, start: number, limit: number, divider: 'first' 
     const token = text.slice(start, end);
     const rest = text.slice(end, limit);
     const valid = (!token.startsWith('@"') || /^@"(?:[^"\r\n]|"")+"$/u.test(token)) && (!rest || /^[\s,:]/u.test(rest));
-    const address = valid ? parseComposerSuggestionQuery(token)?.query ?? '' : '';
+    const query = valid ? parseComposerSuggestionQuery(token)?.query ?? '' : '';
+    const addressed = query.startsWith(REPLY_ADDRESS_PREFIX);
+    const address = addressed ? query.slice(REPLY_ADDRESS_PREFIX.length) : query;
     const leading = implied ? 0 : rest.match(/^\s*(?:[,:]\s*)?/u)?.[0].length ?? 0;
     let instructionStart = end + leading;
     if (divider === 'back' || divider === 'handoff') instructionStart += text.slice(instructionStart, limit).match(/^to\s+/iu)?.[0].length ?? 0;
@@ -44,7 +49,7 @@ function readStage(text: string, start: number, limit: number, divider: 'first' 
     if (raw.startsWith('="') && raw.endsWith('"')) {
         try { instructions = JSON.parse(raw.slice(1)); } catch { /* In-progress text stays editable. */ }
     }
-    return { address, ...(implied ? { implied: true } as const : {}), ...(divider === 'handoff' ? { handoff: true } as const : {}),
+    return { address, ...(addressed ? { addressed: true } as const : {}), ...(implied ? { implied: true } as const : {}), ...(divider === 'handoff' ? { handoff: true } as const : {}),
         start, end, instructions, instructionStart, instructionEnd: instructionStart + raw.length };
 }
 
@@ -76,8 +81,9 @@ export function parseComposerAgentSequence(text: string): ComposerAgentSequence 
         start = match.index + match[0].length;
         previousDivider = handoff ? 'handoff' : back ? 'back' : 'then';
     }
-    if (!stages.length) return null;
-    stages.push(readStage(text, start, text.length, previousDivider));
+    const last = readStage(text, start, text.length, previousDivider);
+    if (!stages.length && !last.addressed) return null;
+    stages.push(last);
     return { stages };
 }
 
@@ -89,12 +95,12 @@ export function stageComposerHandoff(
     const chosen = text.slice(0, mention.offset) + targetAddress + text.slice(mention.endOffset);
     const parsed = parseComposerAgentSequence(chosen);
     if (parsed && parsed.stages.some(stage => stage.start === mention.offset)) {
-        const firstAddress = parsed.stages[0].implied ? formatComposerSequenceAddress(first) : undefined;
+        const firstAddress = parsed.stages[0].implied ? formatComposerReplyAddress(first) : undefined;
         return composerSequenceRows(chosen, parsed, firstAddress).join(', then ');
     }
     const firstTask = text.slice(0, mention.offset).trim();
     const nextTask = text.slice(mention.endOffset).trim() || t('agentInput.sequence.takeOverTask');
-    const skeleton = formatComposerSequenceAddress(first) + ' → ' + targetAddress;
+    const skeleton = formatComposerReplyAddress(first) + ' → ' + targetAddress;
     const { stages } = parseComposerAgentSequence(skeleton)!;
     // Write each assignment through the existing grammar, preserving literal arrows and mentions inside it.
     return replaceComposerSequenceInstructions(
@@ -162,11 +168,19 @@ export function formatComposerSequenceAddress(choice: ComposerAgentReviewSelecti
     return formatComposerSuggestionToken('@', choice.modelId === null ? target : target + '/' + encodeURIComponent(choice.modelId));
 }
 
+// A route chosen in the picker is distinct from an ordinary leading @file or @session reference.
+export function formatComposerReplyAddress(choice: ComposerAgentReviewSelection): string {
+    const target = composerSequenceTargetAddress(choice.target);
+    const qualified = choice.modelId === null ? target : target + '/' + encodeURIComponent(choice.modelId);
+    return formatComposerSuggestionToken('@', REPLY_ADDRESS_PREFIX + qualified);
+}
+
 export function replaceComposerSequenceAddress(text: string, stage: ComposerSequenceStage, choice: ComposerAgentReviewSelection): string {
     if (stage.implied) return text.slice(0, stage.start) + formatComposerSequenceAddress(choice) + ' ' + text.slice(stage.start);
-    if (stage.address && parseComposerSuggestionQuery(text.slice(stage.start, stage.end))?.query !== stage.address) return text;
+    if (stage.address && parseComposerSuggestionQuery(text.slice(stage.start, stage.end))?.query !==
+        (stage.addressed ? REPLY_ADDRESS_PREFIX + stage.address : stage.address)) return text;
     const gap = stage.start === stage.end && !/\s/u.test(text.charAt(stage.start - 1)) ? ' ' : '';
-    return text.slice(0, stage.start) + gap + formatComposerSequenceAddress(choice) + text.slice(stage.end);
+    return text.slice(0, stage.start) + gap + (stage.addressed ? formatComposerReplyAddress(choice) : formatComposerSequenceAddress(choice)) + text.slice(stage.end);
 }
 
 export function listComposerSequenceChoices(catalog: readonly ComposerSequenceCatalogEntry[]): ComposerAgentReviewSelection[] {

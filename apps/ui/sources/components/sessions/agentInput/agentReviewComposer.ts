@@ -4,6 +4,7 @@ import type { ComposerSuggestionKindId } from '@/components/autocomplete/compose
 import type { AutocompleteSuggestion } from '@/components/autocomplete/autocompleteTypes';
 import { formatComposerSuggestionToken, isComposerTokenBoundaryChar } from '@/components/autocomplete/composerSuggestionGrammar';
 import { t } from '@/text';
+import { composerSequenceTargetAddress, formatComposerReplyAddress, formatComposerSequenceAddress, listComposerSequenceChoices, parseComposerAgentSequence, resolveComposerSequenceAddress, type ComposerSequenceCatalogEntry } from './sequence/composerAgentSequence';
 
 export type { ComposerAgentReviewSelection } from '@/sync/domains/input/draftValues/sessionDraftValueTypes';
 export type ComposerAgentReviewTarget = ComposerAgentReviewSelection['target'];
@@ -11,6 +12,10 @@ export type ComposerAgentReviewModel = Readonly<{ id: string | null; label: stri
 export type AgentReviewComposerBinding = Readonly<{
     selection: ComposerAgentReviewSelection | null;
     reviewEnabled?: boolean;
+    /** The foreground runner's own catalog; Delegate eligibility is checked independently. */
+    replyTargets?: readonly ComposerAgentReviewTarget[];
+    peekModels?(target: ComposerAgentReviewTarget): readonly ComposerAgentReviewModel[] | null;
+    subscribeModels?(targets: readonly ComposerAgentReviewTarget[], onChange: () => void): () => void;
     handoff?: Readonly<{
         first: ComposerAgentReviewSelection;
         targets: readonly ComposerAgentReviewTarget[];
@@ -25,7 +30,7 @@ export type AgentReviewComposerBinding = Readonly<{
 export type AgentReviewSuggestionAction =
     | { kind: 'open' | 'status' | 'delegate' }
     | { kind: 'target'; target: ComposerAgentReviewTarget }
-    | { kind: 'model'; selection: ComposerAgentReviewSelection }
+    | { kind: 'model' | 'reply'; selection: ComposerAgentReviewSelection }
     | { kind: 'handoff'; target: ComposerAgentReviewTarget };
 
 export function formatAgentReviewMentionToken(target: ComposerAgentReviewTarget): string {
@@ -74,10 +79,81 @@ export function applyAgentReviewChoice(params: {
     return result;
 }
 
-function targetQueryId(target: ComposerAgentReviewTarget): string {
-    return target.backendTarget.kind === 'configuredAcpBackend'
-        ? 'acp:' + encodeURIComponent(target.backendTarget.backendId)
-        : target.backendTarget.agentId;
+/** A foreground selection either edits the addressed stage or makes the selected
+ * participant the first speaker while keeping the user's current instructions. */
+export function applyComposerReplyChoice(
+    text: string, mention: { offset: number; endOffset: number },
+    selection: ComposerAgentReviewSelection, previousDelegate?: ComposerAgentReviewTarget,
+): { text: string; cursorPosition: number } {
+    const sequence = parseComposerAgentSequence(text);
+    const stage = sequence?.stages.find(candidate => candidate.start === mention.offset && !candidate.implied);
+    if (stage && sequence!.stages.length > 1) {
+        const token = stage.addressed ? formatComposerReplyAddress(selection) : formatComposerSequenceAddress(selection);
+        const suffix = text.slice(mention.endOffset);
+        const space = !suffix || !/^\s/u.test(suffix) ? ' ' : '';
+        return { text: text.slice(0, mention.offset) + token + space + suffix,
+            cursorPosition: mention.offset + token.length + (space || suffix.match(/^\s/u)?.[0] || '').length };
+    }
+    let prefix = text.slice(0, mention.offset);
+    let suffix = text.slice(mention.endOffset);
+    const priorFirst = sequence?.stages[0];
+    if (priorFirst?.addressed && priorFirst.end <= mention.offset) prefix = prefix.slice(priorFirst.instructionStart);
+    if (previousDelegate) {
+        const removal = removeAgentReviewToken(prefix, previousDelegate);
+        if (removal.start >= 0) prefix = removal.text;
+        else suffix = removeAgentReviewToken(suffix, previousDelegate).text;
+    }
+    if ((!prefix || /\s$/u.test(prefix)) && suffix.startsWith(' ')) suffix = suffix.slice(1);
+    if (!suffix) prefix = prefix.trimEnd();
+    const address = formatComposerReplyAddress(selection) + ' ';
+    return { text: address + prefix + suffix, cursorPosition: address.length + prefix.length };
+}
+
+/** A scoped backend may contain slashes in its model IDs. File paths and other
+ * native mention scopes keep their existing lookup path. */
+export function replyModelSearchTargets(query: string, targets: readonly ComposerAgentReviewTarget[] | undefined): readonly ComposerAgentReviewTarget[] {
+    if (!targets?.length || !query) return [];
+    const slash = query.indexOf('/');
+    if (slash >= 0) {
+        const qualifier = query.slice(0, slash).toLowerCase();
+        return targets.filter(target => [composerSequenceTargetAddress(target), target.label].some(name => name.toLowerCase() === qualifier));
+    }
+    if (/[:\\]/u.test(query) || /(?:^\.|\.\p{L}+$)/u.test(query)) return [];
+    return targets;
+}
+
+function matchingReplySelections(query: string, catalog: readonly ComposerSequenceCatalogEntry[]): ComposerAgentReviewSelection[] {
+    const exact = resolveComposerSequenceAddress(query, catalog);
+    if (exact.kind === 'resolved' && exact.selection.modelId !== null) return [exact.selection];
+    if (exact.kind === 'ambiguous') return [...exact.choices].filter(choice => choice.modelId !== null);
+    const search = query.slice(query.indexOf('/') + 1).toLowerCase();
+    return listComposerSequenceChoices(catalog).filter(choice => choice.modelId !== null &&
+        [choice.modelId, choice.modelLabel].some(label => label.toLowerCase().split(/[^\p{L}\p{N}]+/u).some(word => word.startsWith(search))
+            || label.toLowerCase().startsWith(search)));
+}
+
+function replySuggestion(selection: ComposerAgentReviewSelection, query: string): AutocompleteSuggestion {
+    const address = formatComposerSequenceAddress(selection);
+    return { kind: 'agentReview', key: 'agentReview:reply:' + address, text: address,
+        label: selection.modelLabel, description: selection.target.label + ' · ' + t('agentInput.agentReview.reply'),
+        agentReview: { kind: 'reply', selection }, agentReviewQuery: query };
+}
+
+async function searchReplyModels(binding: AgentReviewComposerBinding, query: string, signal?: AbortSignal): Promise<AutocompleteSuggestion[]> {
+    const targets = replyModelSearchTargets(query, binding.replyTargets);
+    if (!targets.length || signal?.aborted) return [];
+    // An unqualified alias should name a machine-observed model. Provider static
+    // fallback remains available (and identified) in the explicit model picker.
+    const entry = (target: ComposerAgentReviewTarget, models: readonly ComposerAgentReviewModel[]): ComposerSequenceCatalogEntry =>
+        ({ target, models: models.filter(model => model.source !== 'catalog') });
+    const cached = targets.map(target => entry(target, binding.peekModels?.(target) ?? []));
+    const current = matchingReplySelections(query, cached);
+    const discovering = Promise.all(targets.map(async target => entry(target, await binding.resolveModels(target, signal).catch(() => []))));
+    // The canonical shared model cache wakes the open menu as each provider responds.
+    // A warm match can surface while another CLI is still being probed.
+    if (current.length && binding.subscribeModels) return current.map(choice => replySuggestion(choice, query));
+    const observed = await discovering;
+    return signal?.aborted ? [] : matchingReplySelections(query, observed).map(choice => replySuggestion(choice, query));
 }
 
 export async function resolveAgentReviewSuggestions(params: {
@@ -89,6 +165,9 @@ export async function resolveAgentReviewSuggestions(params: {
         kind: 'agentReview', key: 'agentReview:' + key, text, label, agentReview, agentReviewQuery: query,
     });
     const bareTarget = scope === null && (!query || binding.matchesTargetPrefix(query));
+    if (scope === null && query && !bareTarget && binding.replyTargets?.length && !'agent'.startsWith(query.toLowerCase())) {
+        return searchReplyModels(binding, query, signal);
+    }
     if (scope !== 'agent' && !bareTarget) {
         return scope === null && !!query && 'agent'.startsWith(query.toLowerCase())
             ? [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })] : [];
@@ -102,14 +181,14 @@ export async function resolveAgentReviewSuggestions(params: {
         const peek = !query && scope === null ? binding.peekTargets : undefined;
         const reviewTargets = binding.reviewEnabled === false ? []
             : peek ? peek() : await binding.resolveTargets(signal).catch(error => {
-                if (!handoffTargets.length) throw error;
+                if (!handoffTargets.length && !binding.replyTargets?.length) throw error;
                 return [];
             });
-        if (peek && !reviewTargets?.length && !handoffTargets.length) {
+        if (peek && !reviewTargets?.length && !handoffTargets.length && !binding.replyTargets?.length) {
             return [row('open', '@agent:', t('agentInput.agentReview.choose'), { kind: 'open' })];
         }
         if (signal?.aborted) return [];
-        const targets = new Map([...handoffTargets, ...(reviewTargets ?? [])].map(target => [targetQueryId(target), target]));
+        const targets = new Map([...(binding.replyTargets ?? []), ...handoffTargets, ...(reviewTargets ?? [])].map(target => [composerSequenceTargetAddress(target), target]));
         if (separator === -1) {
             const search = scopedQuery.toLowerCase();
             const matches = [...targets].filter(([id, target]) => [target.label, id].some(value => {
@@ -122,7 +201,18 @@ export async function resolveAgentReviewSuggestions(params: {
             const target = targets.get(id);
             if (target) {
                 const actionQuery = scopedQuery.slice(separator + 1).toLowerCase();
-                const canDelegate = reviewTargets?.some(candidate => targetQueryId(candidate) === id);
+                const canDelegate = reviewTargets?.some(candidate => composerSequenceTargetAddress(candidate) === id);
+                const canReply = binding.replyTargets?.some(candidate => composerSequenceTargetAddress(candidate) === id);
+                if (scope === null && canReply) return searchReplyModels(binding, query, signal);
+                if (actionQuery.startsWith('reply/') && canReply) {
+                    const search = actionQuery.slice('reply/'.length);
+                    const models = await binding.resolveModels(target, signal);
+                    if (signal?.aborted) return [];
+                    return models.filter(model => [model.label, model.id].some(value => value?.toLowerCase().includes(search))).map(model => ({
+                        ...replySuggestion({target, modelId: model.id, modelLabel: model.label}, query),
+                        ...(model.source ? { description: t(model.source === 'cached' ? 'agentInput.agentReview.cachedModels' : 'agentInput.agentReview.catalogModels') } : {}),
+                    }));
+                }
                 if (actionQuery.startsWith('delegate/')) {
                     if (!canDelegate) return [];
                     const search = actionQuery.slice('delegate/'.length);
@@ -138,7 +228,11 @@ export async function resolveAgentReviewSuggestions(params: {
                     const handoffLabel = t('agentInput.sequence.handOff');
                     const delegateLabel = t('executionRuns.newRun.intents.delegate');
                     const actions: AutocompleteSuggestion[] = [];
-                    if (handoffTargets.some(candidate => targetQueryId(candidate) === id) && handoffLabel.toLowerCase().includes(actionQuery)) {
+                    const replyLabel = t('agentInput.agentReview.reply');
+                    if (canReply && replyLabel.toLowerCase().includes(actionQuery)) {
+                        actions.push(row(id + '/reply', '@agent:' + id + '/reply/', replyLabel, { kind: 'open' }));
+                    }
+                    if (handoffTargets.some(candidate => composerSequenceTargetAddress(candidate) === id) && handoffLabel.toLowerCase().includes(actionQuery)) {
                         actions.push(row(id + '/handoff', '@' + query, handoffLabel, { kind: 'handoff', target }));
                     }
                     if (canDelegate && delegateLabel.toLowerCase().includes(actionQuery)) {

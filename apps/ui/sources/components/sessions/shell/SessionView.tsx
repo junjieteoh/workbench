@@ -5322,6 +5322,7 @@ function SessionViewLoaded({
         return {
             ...agentBinding,
             reviewEnabled: canAddressReviewer,
+            replyTargets: canStageHandoff ? sequenceContext.successorTargets : undefined,
             handoff: canStageHandoff && firstTarget && targets.length ? {
                 first: {
                     target: firstTarget,
